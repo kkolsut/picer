@@ -32,6 +32,7 @@ class SequenceRunner:
         on_bulb_progress: Optional[Callable[[BulbProgress], None]] = None,
         on_error: Optional[Callable[[int, Exception], bool]] = None,
         on_sequence_complete: Optional[Callable[[list[CaptureResult]], None]] = None,
+        on_fits_ready: Optional[Callable] = None,
     ) -> None:
         self._backend = backend
         self._config = config
@@ -40,6 +41,7 @@ class SequenceRunner:
         self._on_bulb_progress = on_bulb_progress
         self._on_error = on_error          # return True=continue, False=abort
         self._on_sequence_complete = on_sequence_complete
+        self._on_fits_ready = on_fits_ready
         self._cancel_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
@@ -131,6 +133,20 @@ class SequenceRunner:
 
                 if self._on_frame_complete:
                     self._on_frame_complete(result)
+
+                if result.file_path.suffix.lower() == ".cr2" and self._on_fits_ready:
+                    _result = result
+                    _cb = self._on_fits_ready
+
+                    def _do_convert() -> None:
+                        try:
+                            from picer.utils.fits_converter import cr2_to_fits
+                            paths = cr2_to_fits(_result.file_path)
+                            _cb(_result, paths)
+                        except Exception as exc:
+                            logger.warning("FITS conversion failed: %s", exc)
+
+                    threading.Thread(target=_do_convert, daemon=True).start()
 
             except Exception as exc:
                 logger.error("Frame %d failed: %s", idx, exc)

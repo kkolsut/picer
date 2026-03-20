@@ -84,6 +84,7 @@ class CameraController:
         on_bulb_progress: Optional[Callable[[BulbProgress], None]] = None,
         on_error: Optional[Callable[[int, Exception], bool]] = None,
         on_sequence_complete: Optional[Callable[[list[CaptureResult]], None]] = None,
+        on_fits_ready: Optional[Callable] = None,
     ) -> None:
         with self._lock:
             if self._runner and self._runner.is_running():
@@ -96,6 +97,7 @@ class CameraController:
                 on_bulb_progress=on_bulb_progress,
                 on_error=on_error,
                 on_sequence_complete=on_sequence_complete,
+                on_fits_ready=on_fits_ready,
             )
             self._runner.start()
 

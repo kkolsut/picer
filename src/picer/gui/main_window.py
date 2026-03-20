@@ -182,6 +182,12 @@ class MainWindow(Gtk.ApplicationWindow):
             on_sequence_complete=lambda results: GLib.idle_add(
                 self._on_sequence_complete, results
             ),
+            on_fits_ready=lambda result, paths: GLib.idle_add(
+                self._preview_panel.show_fits,
+                paths["G"],
+                result.exposure_s,
+                result.iso,
+            ),
         )
 
     def _on_sequence_stop(self) -> None:
