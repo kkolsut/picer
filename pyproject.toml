@@ -11,6 +11,10 @@ dependencies = [
     "gphoto2>=2.5.0",
     "click>=8.1",
     "rich>=13.0",
+    "rawpy>=0.18",
+    "astropy>=5.0",
+    "numpy>=1.24",
+    "scipy>=1.11",
 ]
 
 [project.optional-dependencies]
