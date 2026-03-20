@@ -86,10 +86,11 @@ class MainWindow(Gtk.ApplicationWindow):
         paned.set_resize_start_child(False)
         paned.set_resize_end_child(True)
 
-        # Update output panel filename preview whenever format changes
+        # Update output panel filename preview whenever format/type changes
         self._format_panel._combo.connect("changed", self._on_settings_changed)
         self._exposure_panel._speed_combo.connect("changed", self._on_settings_changed)
         self._iso_panel._combo.connect("changed", self._on_settings_changed)
+        self._sequence_panel._type_combo.connect("changed", self._on_settings_changed)
 
     # ------------------------------------------------------------------
     # Connect / disconnect
@@ -136,7 +137,10 @@ class MainWindow(Gtk.ApplicationWindow):
     # ------------------------------------------------------------------
 
     def _on_settings_changed(self, _widget: object) -> None:
-        self._output_panel.update_config(self._build_camera_config())
+        self._output_panel.update_config(
+            self._build_camera_config(),
+            self._sequence_panel.get_frame_type(),
+        )
 
     def _build_camera_config(self) -> CameraConfig:
         config = CameraConfig()

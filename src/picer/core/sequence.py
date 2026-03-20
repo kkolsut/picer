@@ -79,6 +79,7 @@ class SequenceRunner:
             cfg.output_dir,
             cfg.filename_template,
             cfg.camera_config.capture_format.extension,
+            cfg.frame_type,
         )
         if seq_start > 1:
             logger.info("Existing files detected; starting sequence at seq=%d", seq_start)
@@ -98,6 +99,7 @@ class SequenceRunner:
                 cfg.filename_template,
                 cfg.camera_config,
                 seq=seq_start + idx,
+                frame_type=cfg.frame_type,
             ).parent
 
             try:
@@ -114,6 +116,7 @@ class SequenceRunner:
                     cfg.filename_template,
                     cfg.camera_config,
                     seq=seq_start + idx,
+                    frame_type=cfg.frame_type,
                 )
                 if result.file_path != desired_path:
                     desired_path.parent.mkdir(parents=True, exist_ok=True)

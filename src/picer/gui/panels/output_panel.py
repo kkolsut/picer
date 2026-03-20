@@ -8,7 +8,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
-from picer.camera.models import CameraConfig
+from picer.camera.models import CameraConfig, FrameType
 from picer.utils.file_naming import preview_filename
 
 
@@ -54,9 +54,9 @@ class OutputPanel(Gtk.Frame):
         tmpl_row.append(tmpl_label)
 
         self._tmpl_entry = Gtk.Entry()
-        self._tmpl_entry.set_text("picer_{date}_{seq:04d}")
+        self._tmpl_entry.set_text("{type}_{date}_{seq:04d}")
         self._tmpl_entry.set_hexpand(True)
-        self._tmpl_entry.set_placeholder_text("picer_{date}_{seq:04d}")
+        self._tmpl_entry.set_placeholder_text("{type}_{date}_{seq:04d}")
         self._tmpl_entry.connect("changed", self._on_template_changed)
         tmpl_row.append(self._tmpl_entry)
         box.append(tmpl_row)
@@ -68,6 +68,7 @@ class OutputPanel(Gtk.Frame):
         box.append(self._preview_label)
 
         self._current_config: Optional[CameraConfig] = None
+        self._current_frame_type: FrameType = FrameType.LIGHT
         self._update_preview()
 
     def _on_browse_clicked(self, _btn: Gtk.Button) -> None:
@@ -97,17 +98,18 @@ class OutputPanel(Gtk.Frame):
         else:
             cfg = self._current_config
         try:
-            name = preview_filename(self.get_template(), cfg)
+            name = preview_filename(self.get_template(), cfg, frame_type=self._current_frame_type)
             self._preview_label.set_text(f"→ {name}")
         except Exception:
             self._preview_label.set_text("(invalid template)")
 
-    def update_config(self, config: CameraConfig) -> None:
+    def update_config(self, config: CameraConfig, frame_type: FrameType = FrameType.LIGHT) -> None:
         self._current_config = config
+        self._current_frame_type = frame_type
         self._update_preview()
 
     def get_output_dir(self) -> Path:
         return Path(self._dir_entry.get_text() or str(Path.home() / "picer_captures"))
 
     def get_template(self) -> str:
-        return self._tmpl_entry.get_text() or "picer_{date}_{seq:04d}"
+        return self._tmpl_entry.get_text() or "{type}_{date}_{seq:04d}"
