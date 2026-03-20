@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "picer"
+version = "0.1.0"
+description = "Astronomy DSLR capture application for Canon EOS cameras"
+requires-python = ">=3.11"
+dependencies = [
+    "gphoto2>=2.5.0",
+    "click>=8.1",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-mock>=3.12",
+]
+
+[project.scripts]
+picer     = "picer.cli.commands:main"
+picer-gui = "picer.gui.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/picer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

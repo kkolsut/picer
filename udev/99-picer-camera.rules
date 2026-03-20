@@ -1,0 +1,8 @@
+# Canon EOS 450D / Digital Rebel XSi
+# Vendor: 04a9 (Canon), Product: 317c
+# Prevents GVFS from auto-mounting the camera so libgphoto2 can claim it directly.
+# Install: sudo cp 99-picer-camera.rules /etc/udev/rules.d/
+#          sudo udevadm control --reload-rules && sudo udevadm trigger
+ACTION=="add", SUBSYSTEM=="usb", \
+    ATTRS{idVendor}=="04a9", ATTRS{idProduct}=="317c", \
+    ENV{GVFS_IGNORE}="1"
