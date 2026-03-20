@@ -7,6 +7,17 @@ from pathlib import Path
 from typing import Optional
 
 
+class FrameType(Enum):
+    LIGHT = "light"
+    DARK = "dark"
+    FLAT = "flat"
+    BIAS = "bias"
+
+    @property
+    def label(self) -> str:
+        return self.value.capitalize()
+
+
 class CaptureFormat(Enum):
     RAW = "RAW"
     JPEG = "Large Fine JPEG"
@@ -114,5 +125,6 @@ class SequenceConfig:
     frame_count: int = 1
     interval_s: float = 0.0  # start-to-start; 0 means back-to-back
     output_dir: Path = field(default_factory=lambda: Path.home() / "picer_captures")
-    filename_template: str = "picer_{date}_{seq:04d}"
+    filename_template: str = "{type}_{date}_{seq:04d}"
+    frame_type: FrameType = FrameType.LIGHT
     camera_config: CameraConfig = field(default_factory=CameraConfig)

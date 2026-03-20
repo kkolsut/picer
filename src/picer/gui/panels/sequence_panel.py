@@ -7,7 +7,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # noqa: E402
 
-from picer.camera.models import SequenceConfig
+from picer.camera.models import FrameType, SequenceConfig
 
 
 class SequencePanel(Gtk.Frame):
@@ -31,6 +31,19 @@ class SequencePanel(Gtk.Frame):
         box.set_margin_top(8)
         box.set_margin_bottom(12)
         self.set_child(box)
+
+        # Frame type
+        type_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        type_label = Gtk.Label(label="Frame type:")
+        type_label.set_xalign(0)
+        type_label.set_hexpand(True)
+        type_row.append(type_label)
+        self._type_combo = Gtk.ComboBoxText()
+        for ft in FrameType:
+            self._type_combo.append(ft.value, ft.label)
+        self._type_combo.set_active_id(FrameType.LIGHT.value)
+        type_row.append(self._type_combo)
+        box.append(type_row)
 
         # Frame count
         frames_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -128,6 +141,10 @@ class SequencePanel(Gtk.Frame):
     # Getters
     # ------------------------------------------------------------------
 
+    def get_frame_type(self) -> FrameType:
+        active_id = self._type_combo.get_active_id()
+        return FrameType(active_id) if active_id else FrameType.LIGHT
+
     def get_frame_count(self) -> int:
         return int(self._frames_spin.get_value())
 
@@ -135,5 +152,6 @@ class SequencePanel(Gtk.Frame):
         return float(self._interval_spin.get_value())
 
     def apply_to_sequence_config(self, config: SequenceConfig) -> None:
+        config.frame_type = self.get_frame_type()
         config.frame_count = self.get_frame_count()
         config.interval_s = self.get_interval()

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from picer.camera.base import CameraBackend
-from picer.camera.models import BulbProgress, CameraConfig, CaptureResult, SequenceConfig
+from picer.camera.models import BulbProgress, CameraConfig, CaptureResult, FrameType, SequenceConfig
 from picer.core.sequence import SequenceRunner
 from picer.utils.gvfs_inhibit import ensure_camera_accessible
 
@@ -57,13 +57,15 @@ class CameraController:
         self,
         config: CameraConfig,
         output_dir: Path,
-        filename_template: str = "picer_{date}_{seq:04d}",
+        filename_template: str = "{type}_{date}_{seq:04d}",
+        frame_type: FrameType = FrameType.LIGHT,
         on_progress: Optional[Callable[[BulbProgress], None]] = None,
     ) -> CaptureResult:
         seq_cfg = SequenceConfig(
             frame_count=1,
             output_dir=output_dir,
             filename_template=filename_template,
+            frame_type=frame_type,
             camera_config=config,
         )
         runner = SequenceRunner(backend=self._backend, config=seq_cfg, on_bulb_progress=on_progress)

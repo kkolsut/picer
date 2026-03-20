@@ -5,13 +5,14 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from picer.camera.models import CameraConfig, CaptureFormat
+from picer.camera.models import CameraConfig, CaptureFormat, FrameType
 
 # Tokens supported in filename templates.
 # {date}       → 2026-03-15
 # {time}       → 235930
 # {datetime}   → 2026-03-15T235930
 # {seq}        → frame index (supports format spec, e.g. {seq:04d})
+# {type}       → frame type: light, dark, flat, bias
 # {iso}        → ISO value
 # {exp}        → exposure in seconds (e.g. 180s or 0.004s)
 # {camera}     → "450D"
@@ -22,14 +23,18 @@ _TOKEN_PATTERNS = {
     "date": r"\d{4}-\d{2}-\d{2}",
     "time": r"\d{6}",
     "datetime": r"\d{4}-\d{2}-\d{2}T\d{6}",
+    "type": r"(?:light|dark|flat|bias)",
     "iso": r"\d+",
     "exp": r"[\d.]+s",
     "camera": r".+",
 }
 
 
-def _template_to_seq_regex(template: str) -> re.Pattern | None:
+def _template_to_seq_regex(template: str, frame_type: FrameType | None = None) -> re.Pattern | None:
     """Convert a filename template to a regex that captures the {seq} number.
+
+    If *frame_type* is given, ``{type}`` matches only that specific value so
+    that e.g. dark frames are counted separately from light frames.
 
     Returns None if the template contains no {seq} token.
     """
@@ -43,6 +48,8 @@ def _template_to_seq_regex(template: str) -> re.Pattern | None:
         if key == "seq":
             has_seq = True
             result += r"(\d+)"
+        elif key == "type" and frame_type is not None:
+            result += re.escape(frame_type.value)
         else:
             pat = _TOKEN_PATTERNS.get(key, r".+")
             result += f"(?:{pat})"
@@ -55,14 +62,20 @@ def _template_to_seq_regex(template: str) -> re.Pattern | None:
     return re.compile(f"^{result}$")
 
 
-def find_next_seq(output_dir: Path, template: str, extension: str) -> int:
+def find_next_seq(
+    output_dir: Path,
+    template: str,
+    extension: str,
+    frame_type: FrameType = FrameType.LIGHT,
+) -> int:
     """Return the next sequence number to use, skipping any already in *output_dir*.
 
     Scans *output_dir* for files whose stems match *template* (with *extension*)
-    and returns ``max_existing_seq + 1``.  Returns 1 when the directory is
-    empty, does not exist, or the template has no ``{seq}`` token.
+    and the given *frame_type*, then returns ``max_existing_seq + 1``.  Each
+    frame type maintains its own independent counter.  Returns 1 when the
+    directory is empty, does not exist, or the template has no ``{seq}`` token.
     """
-    pattern = _template_to_seq_regex(template)
+    pattern = _template_to_seq_regex(template, frame_type)
     if pattern is None or not output_dir.exists():
         return 1
 
@@ -83,6 +96,7 @@ def render_filename(
     seq: int,
     camera_model: str = "450D",
     now: datetime | None = None,
+    frame_type: FrameType = FrameType.LIGHT,
 ) -> str:
     """Render a filename template to a string (without extension)."""
     if now is None:
@@ -93,6 +107,7 @@ def render_filename(
         "time": now.strftime("%H%M%S"),
         "datetime": now.strftime("%Y-%m-%dT%H%M%S"),
         "seq": seq,
+        "type": frame_type.value,
         "iso": config.iso,
         "exp": f"{config.effective_exposure_s:.3g}s",
         "camera": camera_model,
@@ -116,15 +131,21 @@ def build_output_path(
     seq: int,
     camera_model: str = "450D",
     now: datetime | None = None,
+    frame_type: FrameType = FrameType.LIGHT,
 ) -> Path:
     """Return the full output path including extension."""
-    stem = render_filename(template, config, seq, camera_model, now)
+    stem = render_filename(template, config, seq, camera_model, now, frame_type)
     ext = config.capture_format.extension
     return output_dir / f"{stem}{ext}"
 
 
-def preview_filename(template: str, config: CameraConfig, seq: int = 1) -> str:
+def preview_filename(
+    template: str,
+    config: CameraConfig,
+    seq: int = 1,
+    frame_type: FrameType = FrameType.LIGHT,
+) -> str:
     """Return an example rendered filename for UI preview."""
-    stem = render_filename(template, config, seq)
+    stem = render_filename(template, config, seq, frame_type=frame_type)
     ext = config.capture_format.extension
     return f"{stem}{ext}"
