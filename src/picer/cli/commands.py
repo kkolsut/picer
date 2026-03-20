@@ -17,6 +17,7 @@ from picer.camera.models import (
     ISO_VALUES,
     CameraConfig,
     CaptureFormat,
+    FrameType,
     SequenceConfig,
     ShutterSpeed,
 )
@@ -72,6 +73,14 @@ def _validate_format(ctx, param, value):
         raise click.BadParameter(f"must be one of: raw, jpeg, raw+jpeg")
 
 
+def _validate_frame_type(ctx, param, value):
+    try:
+        return FrameType(value.lower())
+    except ValueError:
+        valid = ", ".join(ft.value for ft in FrameType)
+        raise click.BadParameter(f"must be one of: {valid}")
+
+
 # ── Shared options ─────────────────────────────────────────────────────────────
 
 _common_options = [
@@ -83,8 +92,10 @@ _common_options = [
                  show_default=True, help="File format: raw, jpeg, raw+jpeg"),
     click.option("--output", "-o", default=str(Path.home() / "picer_captures"),
                  show_default=True, type=click.Path(), help="Output directory"),
-    click.option("--filename", default="picer_{date}_{seq:04d}",
+    click.option("--filename", default="{type}_{date}_{seq:04d}",
                  show_default=True, help="Filename template"),
+    click.option("--type", "frame_type", default="light", callback=_validate_frame_type,
+                 show_default=True, help="Frame type: light, dark, flat, bias"),
     click.option("--mock", is_flag=True, hidden=True, help="Use mock camera (no hardware)"),
 ]
 
@@ -150,6 +161,7 @@ def capture(
     fmt: CaptureFormat,
     output: str,
     filename: str,
+    frame_type: FrameType,
     mock: bool,
 ) -> None:
     """Capture a single frame."""
@@ -167,7 +179,7 @@ def capture(
 
     output_dir = Path(output)
     mode = "BULB" if config.shutter_speed == ShutterSpeed.BULB else f"{config.shutter_speed.value}s"
-    console.print(f"Capturing: {mode} | ISO {iso} | {fmt.label}")
+    console.print(f"Capturing: {mode} | ISO {iso} | {fmt.label} | {frame_type.label}")
 
     with Progress(
         SpinnerColumn(),
@@ -191,6 +203,7 @@ def capture(
                 config=config,
                 output_dir=output_dir,
                 filename_template=filename,
+                frame_type=frame_type,
                 on_progress=on_progress,
             )
         except Exception as exc:
@@ -218,6 +231,7 @@ def sequence(
     fmt: CaptureFormat,
     output: str,
     filename: str,
+    frame_type: FrameType,
     mock: bool,
     frames: int,
     interval: float,
@@ -241,6 +255,7 @@ def sequence(
         interval_s=interval,
         output_dir=Path(output),
         filename_template=filename,
+        frame_type=frame_type,
         camera_config=config,
     )
 
@@ -249,7 +264,8 @@ def sequence(
         f"Sequence: [bold]{frames}[/bold] frames | "
         f"[bold]{exposure}s[/bold] exposure | "
         f"ISO [bold]{iso}[/bold] | "
-        f"Format [bold]{fmt.label}[/bold]"
+        f"Format [bold]{fmt.label}[/bold] | "
+        f"Type [bold]{frame_type.label}[/bold]"
     )
 
     results = []
