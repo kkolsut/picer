@@ -18,6 +18,64 @@ from picer.camera.models import CameraConfig, CaptureFormat
 
 _TOKEN_RE = re.compile(r"\{(\w+)(?::([^}]+))?\}")
 
+_TOKEN_PATTERNS = {
+    "date": r"\d{4}-\d{2}-\d{2}",
+    "time": r"\d{6}",
+    "datetime": r"\d{4}-\d{2}-\d{2}T\d{6}",
+    "iso": r"\d+",
+    "exp": r"[\d.]+s",
+    "camera": r".+",
+}
+
+
+def _template_to_seq_regex(template: str) -> re.Pattern | None:
+    """Convert a filename template to a regex that captures the {seq} number.
+
+    Returns None if the template contains no {seq} token.
+    """
+    has_seq = False
+    result = ""
+    last_end = 0
+
+    for m in _TOKEN_RE.finditer(template):
+        result += re.escape(template[last_end : m.start()])
+        key = m.group(1)
+        if key == "seq":
+            has_seq = True
+            result += r"(\d+)"
+        else:
+            pat = _TOKEN_PATTERNS.get(key, r".+")
+            result += f"(?:{pat})"
+        last_end = m.end()
+
+    result += re.escape(template[last_end:])
+
+    if not has_seq:
+        return None
+    return re.compile(f"^{result}$")
+
+
+def find_next_seq(output_dir: Path, template: str, extension: str) -> int:
+    """Return the next sequence number to use, skipping any already in *output_dir*.
+
+    Scans *output_dir* for files whose stems match *template* (with *extension*)
+    and returns ``max_existing_seq + 1``.  Returns 1 when the directory is
+    empty, does not exist, or the template has no ``{seq}`` token.
+    """
+    pattern = _template_to_seq_regex(template)
+    if pattern is None or not output_dir.exists():
+        return 1
+
+    max_seq = 0
+    for f in output_dir.iterdir():
+        if f.suffix.lower() != extension.lower():
+            continue
+        m = pattern.match(f.stem)
+        if m:
+            max_seq = max(max_seq, int(m.group(1)))
+
+    return max_seq + 1
+
 
 def render_filename(
     template: str,

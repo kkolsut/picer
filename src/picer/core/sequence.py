@@ -9,7 +9,7 @@ from typing import Callable, Optional
 
 from picer.camera.base import CameraBackend
 from picer.camera.models import BulbProgress, CaptureResult, SequenceConfig
-from picer.utils.file_naming import build_output_path
+from picer.utils.file_naming import build_output_path, find_next_seq
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,14 @@ class SequenceRunner:
 
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
 
+        seq_start = find_next_seq(
+            cfg.output_dir,
+            cfg.filename_template,
+            cfg.camera_config.capture_format.extension,
+        )
+        if seq_start > 1:
+            logger.info("Existing files detected; starting sequence at seq=%d", seq_start)
+
         for idx in range(cfg.frame_count):
             if self._cancel_event.is_set():
                 logger.info("Sequence cancelled before frame %d", idx)
@@ -87,7 +95,7 @@ class SequenceRunner:
                 cfg.output_dir,
                 cfg.filename_template,
                 cfg.camera_config,
-                seq=idx + 1,
+                seq=seq_start + idx,
             ).parent
 
             try:
@@ -103,7 +111,7 @@ class SequenceRunner:
                     cfg.output_dir,
                     cfg.filename_template,
                     cfg.camera_config,
-                    seq=idx + 1,
+                    seq=seq_start + idx,
                 )
                 if result.file_path != desired_path:
                     desired_path.parent.mkdir(parents=True, exist_ok=True)
