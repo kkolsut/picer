@@ -134,22 +134,22 @@ class GPhoto2Backend:
         with self._lock:
             cfg = self._camera.get_config()
 
-            if config.shutter_speed != ShutterSpeed.BULB:
-                try:
-                    w = cfg.get_child_by_name("shutterspeed")
-                except gp.GPhoto2Error:
-                    raise
-                choices = list(w.get_choices()) if hasattr(w, "get_choices") else []
-                logger.debug("apply_config: shutterspeed choices: %s", choices)
-                if config.shutter_speed.value not in choices:
-                    raise ValueError(
-                        f"Camera rejected shutter speed '{config.shutter_speed.value}' "
-                        f"(available: {choices}). Switch the camera dial to M (Manual) mode."
-                    )
-                logger.debug("apply_config: setting shutterspeed to %r", config.shutter_speed.value)
-                w.set_value(config.shutter_speed.value)
-            else:
-                logger.debug("apply_config: skipping shutterspeed widget (BULB mode)")
+            try:
+                w = cfg.get_child_by_name("shutterspeed")
+            except gp.GPhoto2Error:
+                raise
+            choices = list(w.get_choices()) if hasattr(w, "get_choices") else []
+            logger.debug("apply_config: shutterspeed choices: %s", choices)
+            desired = config.shutter_speed.value
+            # Match case-insensitively (camera may report "bulb", enum has "Bulb")
+            actual = next((c for c in choices if c.lower() == desired.lower()), None)
+            if actual is None:
+                raise ValueError(
+                    f"Camera rejected shutter speed '{desired}' "
+                    f"(available: {choices}). Switch the camera dial to M (Manual) mode."
+                )
+            logger.debug("apply_config: setting shutterspeed to %r", actual)
+            w.set_value(actual)
 
             try:
                 w = cfg.get_child_by_name("iso")
@@ -244,22 +244,30 @@ class GPhoto2Backend:
         duration = config.bulb_duration_s
         t_start = time.time()
 
-        # Preflight: verify camera is in a bulb-compatible mode
+        # Step 1: ensure shutterspeed is set to "bulb".
+        # Done while the camera is still at a non-bulb speed so set_config is safe.
+        # (On Canon EOS, set_config *while already in bulb mode* fires the shutter —
+        # but transitioning INTO bulb mode is safe.)
         with self._lock:
-            cfg_check = self._camera.get_config()
+            cfg = self._camera.get_config()
             try:
-                ss_widget = cfg_check.get_child_by_name("shutterspeed")
+                ss_widget = cfg.get_child_by_name("shutterspeed")
                 choices = list(ss_widget.get_choices())
-                if not any(c.lower() == "bulb" for c in choices):
+                bulb_val = next((c for c in choices if c.lower() == "bulb"), None)
+                if bulb_val is None:
                     raise ValueError(
                         f"Camera does not support Bulb mode (choices: {choices}). "
                         "Switch the camera dial to M and set shutter speed to Bulb, "
                         "or use the B (Bulb) dial position."
                     )
+                if ss_widget.get_value().lower() != "bulb":
+                    ss_widget.set_value(bulb_val)
+                    self._camera.set_config(cfg)
             except gp.GPhoto2Error as exc:
-                logger.warning("Could not verify bulb support: %s", exc)
+                logger.warning("Could not set shutterspeed to bulb: %s", exc)
 
-        # Press shutter — drain first so camera is idle, then send exactly once.
+        # Step 2: press shutter — drain first, then send exactly once.
+        # Only eosremoterelease changes here; shutterspeed is already "bulb".
         # Do NOT retry: each set_config("Press Full") fires the shutter.
         with self._lock:
             self._drain_events()
