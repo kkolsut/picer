@@ -42,13 +42,16 @@ class MainWindow(Gtk.ApplicationWindow):
         self.set_titlebar(header)
 
         self._connect_btn = Gtk.Button(label="Connect")
+        css = Gtk.CssProvider()
+        css.load_from_string("button { min-width: 110px; max-width: 110px; }")
+        self._connect_btn.get_style_context().add_provider(css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self._connect_btn.connect("clicked", self._on_connect_clicked)
         header.pack_start(self._connect_btn)
 
-        self._status_dot = Gtk.Label(label="⬤")
-        self._status_dot.add_css_class("dim-label")
+        self._status_dot = Gtk.Label()
+        self._status_dot.set_markup('<span foreground="red">⬤</span>')
         self._status_dot.set_tooltip_text("Camera disconnected")
-        header.pack_end(self._status_dot)
+        header.pack_start(self._status_dot)
 
         # ── Layout: left settings + right preview ─────────────────────
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
@@ -123,13 +126,11 @@ class MainWindow(Gtk.ApplicationWindow):
     def _set_connected_state(self, connected: bool) -> None:
         if connected:
             self._connect_btn.set_label("Disconnect")
-            self._status_dot.remove_css_class("dim-label")
-            self._status_dot.add_css_class("success")
+            self._status_dot.set_markup('<span foreground="green">⬤</span>')
             self._status_dot.set_tooltip_text("Camera connected")
         else:
             self._connect_btn.set_label("Connect")
-            self._status_dot.remove_css_class("success")
-            self._status_dot.add_css_class("dim-label")
+            self._status_dot.set_markup('<span foreground="red">⬤</span>')
             self._status_dot.set_tooltip_text("Camera disconnected")
 
     # ------------------------------------------------------------------
