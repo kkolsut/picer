@@ -37,7 +37,23 @@ class GPhoto2Backend:
             camera.init()
             self._camera = camera
             self._connected = True
+            self._drain_events()
             logger.info("Camera connected")
+
+    def _drain_events(self) -> None:
+        """Consume pending camera events to clear any I/O-in-progress state.
+
+        Must be called while holding self._lock.
+        Canon cameras often queue events after init or after a capture;
+        calling set_config while those are pending returns [-110].
+        """
+        for _ in range(30):
+            try:
+                event_type, _ = self._camera.wait_for_event(100)
+                if event_type == gp.GP_EVENT_TIMEOUT:
+                    break
+            except gp.GPhoto2Error:
+                break
 
     def disconnect(self) -> None:
         with self._lock:
@@ -70,27 +86,70 @@ class GPhoto2Backend:
 
         try:
             widget = cfg.get_child_by_name("shutterspeed")
-            shutter = ShutterSpeed(widget.get_value())
-        except (gp.GPhoto2Error, ValueError):
-            pass
+            raw = widget.get_value()
+            logger.debug("get_config: raw shutterspeed value from camera: %r", raw)
+            shutter = ShutterSpeed(raw)
+            logger.debug("get_config: parsed shutter speed: %s", shutter)
+        except gp.GPhoto2Error as exc:
+            logger.warning("get_config: could not read shutterspeed widget: %s", exc)
+        except ValueError:
+            logger.warning("get_config: unrecognised shutterspeed value %r — falling back to S_1", raw)
 
         try:
             widget = cfg.get_child_by_name("iso")
             iso = int(widget.get_value())
+            logger.debug("get_config: raw iso value from camera: %r", iso)
         except (gp.GPhoto2Error, ValueError):
             pass
 
-        return CameraConfig(shutter_speed=shutter, iso=iso)
+        result = CameraConfig(shutter_speed=shutter, iso=iso)
+        logger.debug("get_config: returning %s", result)
+        return result
+
+    def _set_config_with_retry(
+        self, cfg, retries: int = 5, delay: float = 1.0
+    ) -> None:
+        """Call set_config, retrying on transient [-110] I/O-in-progress errors.
+
+        Must be called while holding self._lock.
+        """
+        last_exc: Exception = RuntimeError("No attempts made")
+        for attempt in range(retries):
+            try:
+                self._camera.set_config(cfg)
+                return
+            except gp.GPhoto2Error as exc:
+                last_exc = exc
+                if attempt < retries - 1:
+                    logger.warning(
+                        "set_config attempt %d/%d failed (%s) — retrying in %.1fs",
+                        attempt + 1, retries, exc, delay,
+                    )
+                    time.sleep(delay)
+        raise last_exc
 
     def apply_config(self, config: CameraConfig) -> None:
+        logger.debug("apply_config: requested shutter=%s iso=%s format=%s",
+                     config.shutter_speed, config.iso, config.capture_format)
         with self._lock:
             cfg = self._camera.get_config()
 
-            try:
-                w = cfg.get_child_by_name("shutterspeed")
+            if config.shutter_speed != ShutterSpeed.BULB:
+                try:
+                    w = cfg.get_child_by_name("shutterspeed")
+                except gp.GPhoto2Error:
+                    raise
+                choices = list(w.get_choices()) if hasattr(w, "get_choices") else []
+                logger.debug("apply_config: shutterspeed choices: %s", choices)
+                if config.shutter_speed.value not in choices:
+                    raise ValueError(
+                        f"Camera rejected shutter speed '{config.shutter_speed.value}' "
+                        f"(available: {choices}). Switch the camera dial to M (Manual) mode."
+                    )
+                logger.debug("apply_config: setting shutterspeed to %r", config.shutter_speed.value)
                 w.set_value(config.shutter_speed.value)
-            except gp.GPhoto2Error as exc:
-                logger.warning("Could not set shutter speed: %s", exc)
+            else:
+                logger.debug("apply_config: skipping shutterspeed widget (BULB mode)")
 
             try:
                 w = cfg.get_child_by_name("iso")
@@ -104,7 +163,10 @@ class GPhoto2Backend:
             except gp.GPhoto2Error as exc:
                 logger.warning("Could not set image format: %s", exc)
 
-            self._camera.set_config(cfg)
+            try:
+                self._set_config_with_retry(cfg)
+            except gp.GPhoto2Error as exc:
+                logger.warning("apply_config: set_config failed after retries: %s", exc)
 
     # ------------------------------------------------------------------
     # Capture
@@ -119,10 +181,15 @@ class GPhoto2Backend:
         cancel_check: Optional[Callable[[], bool]] = None,
     ) -> CaptureResult:
         dest.mkdir(parents=True, exist_ok=True)
-        self.apply_config(config)
 
         if config.shutter_speed == ShutterSpeed.BULB:
+            # Do NOT call apply_config before bulb: every set_config call on the
+            # Canon 450D in bulb mode triggers a shutter release.  ISO/imageformat
+            # are irrelevant for timing control; the bulb open/close are the only
+            # two set_config calls we want to make.
             return self._capture_bulb(config, dest, index, on_progress, cancel_check)
+
+        self.apply_config(config)
         return self._capture_with_retry(config, dest, index)
 
     def _capture_with_retry(
@@ -155,6 +222,7 @@ class GPhoto2Backend:
             )
             out_path = dest / file_path.name
             camera_file.save(str(out_path))
+            self._drain_events()
 
         logger.info("Captured %s", out_path.name)
         return CaptureResult(
@@ -176,11 +244,28 @@ class GPhoto2Backend:
         duration = config.bulb_duration_s
         t_start = time.time()
 
-        # Press shutter
+        # Preflight: verify camera is in a bulb-compatible mode
         with self._lock:
+            cfg_check = self._camera.get_config()
+            try:
+                ss_widget = cfg_check.get_child_by_name("shutterspeed")
+                choices = list(ss_widget.get_choices())
+                if not any(c.lower() == "bulb" for c in choices):
+                    raise ValueError(
+                        f"Camera does not support Bulb mode (choices: {choices}). "
+                        "Switch the camera dial to M and set shutter speed to Bulb, "
+                        "or use the B (Bulb) dial position."
+                    )
+            except gp.GPhoto2Error as exc:
+                logger.warning("Could not verify bulb support: %s", exc)
+
+        # Press shutter — drain first so camera is idle, then send exactly once.
+        # Do NOT retry: each set_config("Press Full") fires the shutter.
+        with self._lock:
+            self._drain_events()
             cfg = self._camera.get_config()
             release = cfg.get_child_by_name("eosremoterelease")
-            release.set_value("Immediate")
+            release.set_value("Press Full")
             self._camera.set_config(cfg)
 
         logger.info("Bulb open for %.1fs", duration)
@@ -194,17 +279,16 @@ class GPhoto2Backend:
                 break
             sleep_time = min(interval, duration - elapsed)
             time.sleep(sleep_time)
-            elapsed = time.monotonic() - (time.monotonic() - elapsed - sleep_time + elapsed)
             elapsed = time.time() - t_start
             if on_progress is not None:
                 on_progress(BulbProgress(elapsed_s=elapsed, total_s=duration))
 
-        # Release shutter
+        # Release shutter — retrying here is safe (doesn't re-fire, just closes).
         with self._lock:
             cfg = self._camera.get_config()
             release = cfg.get_child_by_name("eosremoterelease")
             release.set_value("Release Full")
-            self._camera.set_config(cfg)
+            self._set_config_with_retry(cfg)
 
         logger.info("Bulb closed, waiting for file")
 
@@ -242,4 +326,4 @@ class GPhoto2Backend:
             cfg = self._camera.get_config()
             widget = cfg.get_child_by_name(name)
             widget.set_value(value)
-            self._camera.set_config(cfg)
+            self._set_config_with_retry(cfg)

@@ -210,10 +210,14 @@ class MainWindow(Gtk.ApplicationWindow):
         return GLib.SOURCE_REMOVE
 
     def _on_seq_error(self, idx: int, exc: Exception) -> bool:
+        if isinstance(exc, ValueError):
+            GLib.idle_add(self._sequence_panel.set_running, False)
+            GLib.idle_add(self._show_error, f"Frame {idx + 1} failed", str(exc))
+            return False  # stop sequence
         GLib.idle_add(
             self._sequence_panel.set_status, f"Frame {idx + 1} error: {exc}"
         )
-        return True  # continue sequence on error
+        return True  # continue sequence on transient errors
 
     def _on_sequence_complete(self, results: list[CaptureResult]) -> bool:
         self._sequence_panel.set_running(False)
