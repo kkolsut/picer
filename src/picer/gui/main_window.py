@@ -107,6 +107,8 @@ class MainWindow(Gtk.ApplicationWindow):
 
         self._connect_btn.set_sensitive(False)
         self._connect_btn.set_label("Connecting…")
+        self._status_dot.set_markup('<span foreground="yellow">⬤</span>')
+        self._status_dot.set_tooltip_text("Connecting…")
 
         def _worker() -> None:
             ok, msg = self._controller.connect()
@@ -120,6 +122,8 @@ class MainWindow(Gtk.ApplicationWindow):
             self._set_connected_state(True)
         else:
             self._connect_btn.set_label("Connect")
+            self._status_dot.set_markup('<span foreground="red">⬤</span>')
+            self._status_dot.set_tooltip_text("Camera disconnected")
             self._show_error("Could not connect to camera", msg)
         return GLib.SOURCE_REMOVE
 
