@@ -86,17 +86,25 @@ class GPhoto2Backend:
 
         try:
             widget = cfg.get_child_by_name("shutterspeed")
-            shutter = ShutterSpeed(widget.get_value())
-        except (gp.GPhoto2Error, ValueError):
-            pass
+            raw = widget.get_value()
+            logger.debug("get_config: raw shutterspeed value from camera: %r", raw)
+            shutter = ShutterSpeed(raw)
+            logger.debug("get_config: parsed shutter speed: %s", shutter)
+        except gp.GPhoto2Error as exc:
+            logger.warning("get_config: could not read shutterspeed widget: %s", exc)
+        except ValueError:
+            logger.warning("get_config: unrecognised shutterspeed value %r — falling back to S_1", raw)
 
         try:
             widget = cfg.get_child_by_name("iso")
             iso = int(widget.get_value())
+            logger.debug("get_config: raw iso value from camera: %r", iso)
         except (gp.GPhoto2Error, ValueError):
             pass
 
-        return CameraConfig(shutter_speed=shutter, iso=iso)
+        result = CameraConfig(shutter_speed=shutter, iso=iso)
+        logger.debug("get_config: returning %s", result)
+        return result
 
     def _set_config_with_retry(
         self, cfg, retries: int = 5, delay: float = 1.0
@@ -121,15 +129,27 @@ class GPhoto2Backend:
         raise last_exc
 
     def apply_config(self, config: CameraConfig) -> None:
+        logger.debug("apply_config: requested shutter=%s iso=%s format=%s",
+                     config.shutter_speed, config.iso, config.capture_format)
         with self._lock:
             cfg = self._camera.get_config()
 
             if config.shutter_speed != ShutterSpeed.BULB:
                 try:
                     w = cfg.get_child_by_name("shutterspeed")
-                    w.set_value(config.shutter_speed.value)
-                except gp.GPhoto2Error as exc:
-                    logger.warning("Could not set shutter speed: %s", exc)
+                except gp.GPhoto2Error:
+                    raise
+                choices = list(w.get_choices()) if hasattr(w, "get_choices") else []
+                logger.debug("apply_config: shutterspeed choices: %s", choices)
+                if config.shutter_speed.value not in choices:
+                    raise ValueError(
+                        f"Camera rejected shutter speed '{config.shutter_speed.value}' "
+                        f"(available: {choices}). Switch the camera dial to M (Manual) mode."
+                    )
+                logger.debug("apply_config: setting shutterspeed to %r", config.shutter_speed.value)
+                w.set_value(config.shutter_speed.value)
+            else:
+                logger.debug("apply_config: skipping shutterspeed widget (BULB mode)")
 
             try:
                 w = cfg.get_child_by_name("iso")
@@ -223,6 +243,21 @@ class GPhoto2Backend:
     ) -> CaptureResult:
         duration = config.bulb_duration_s
         t_start = time.time()
+
+        # Preflight: verify camera is in a bulb-compatible mode
+        with self._lock:
+            cfg_check = self._camera.get_config()
+            try:
+                ss_widget = cfg_check.get_child_by_name("shutterspeed")
+                choices = list(ss_widget.get_choices())
+                if not any(c.lower() == "bulb" for c in choices):
+                    raise ValueError(
+                        f"Camera does not support Bulb mode (choices: {choices}). "
+                        "Switch the camera dial to M and set shutter speed to Bulb, "
+                        "or use the B (Bulb) dial position."
+                    )
+            except gp.GPhoto2Error as exc:
+                logger.warning("Could not verify bulb support: %s", exc)
 
         # Press shutter — drain first so camera is idle, then send exactly once.
         # Do NOT retry: each set_config("Press Full") fires the shutter.

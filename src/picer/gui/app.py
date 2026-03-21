@@ -52,8 +52,10 @@ class PicerApp(Gtk.Application):
 
 
 def main(argv: list[str] | None = None) -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    args = argv or sys.argv
+    level = logging.DEBUG if "--debug" in args else logging.INFO
+    logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
 
-    use_mock = "--mock" in (argv or sys.argv)
+    use_mock = "--mock" in args
     app = PicerApp(use_mock=use_mock)
-    return app.run(argv or sys.argv)
+    return app.run(args)
