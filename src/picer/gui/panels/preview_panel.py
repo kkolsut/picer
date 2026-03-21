@@ -83,13 +83,20 @@ class PreviewPanel(Gtk.Frame):
         self._current_fits_path: Optional[Path] = None
         self._current_img_w: int = 0
         self._current_img_h: int = 0
+        self._fits_data: Optional["np.ndarray"] = None
         self._psf_result: Optional[PSFResult] = None
+        self._hover_cutout: Optional["np.ndarray"] = None
 
-        # Click gesture on image widget
+        # Click gesture — PSF analysis
         gesture = Gtk.GestureClick.new()
         gesture.set_button(1)
         gesture.connect("pressed", self._on_image_clicked)
         self._image.add_controller(gesture)
+
+        # Motion controller — real-time zoom
+        motion = Gtk.EventControllerMotion.new()
+        motion.connect("motion", self._on_image_motion)
+        self._image.add_controller(motion)
 
     # ------------------------------------------------------------------
     # Public API
@@ -141,6 +148,7 @@ class PreviewPanel(Gtk.Frame):
         self._current_fits_path = fits_path
         self._current_img_w = w
         self._current_img_h = h
+        self._fits_data = data
 
         self._info_label.set_text(
             f"{fits_path.name}  |  {exposure_s:.3g}s  |  ISO {iso}  |  {w}×{h} px"
@@ -148,6 +156,7 @@ class PreviewPanel(Gtk.Frame):
 
         # Reset PSF on new image
         self._psf_result = None
+        self._hover_cutout = None
         self._fwhm_label.set_text("")
         self._psf_area.queue_draw()
         self._zoom_area.queue_draw()
@@ -158,7 +167,9 @@ class PreviewPanel(Gtk.Frame):
         self._info_label.set_text("")
         self._fwhm_label.set_text("")
         self._current_fits_path = None
+        self._fits_data = None
         self._psf_result = None
+        self._hover_cutout = None
         self._psf_area.queue_draw()
         self._zoom_area.queue_draw()
 
@@ -203,6 +214,46 @@ class PreviewPanel(Gtk.Frame):
             )
 
         self._psf_area.queue_draw()
+        self._zoom_area.queue_draw()
+
+    def _on_image_motion(
+        self, controller: Gtk.EventControllerMotion, x: float, y: float
+    ) -> None:
+        if self._fits_data is None:
+            return
+
+        widget = controller.get_widget()
+        widget_w = widget.get_width()
+        widget_h = widget.get_height()
+        img_w = self._current_img_w
+        img_h = self._current_img_h
+
+        if widget_w <= 0 or widget_h <= 0 or img_w <= 0 or img_h <= 0:
+            return
+
+        scale = min(widget_w / img_w, widget_h / img_h)
+        ox = (widget_w - img_w * scale) / 2
+        oy = (widget_h - img_h * scale) / 2
+        px = int((x - ox) / scale)
+        py = int((y - oy) / scale)
+
+        if not (0 <= px < img_w and 0 <= py < img_h):
+            self._hover_cutout = None
+            self._zoom_area.queue_draw()
+            return
+
+        import numpy as np
+        half = 32
+        x0 = max(0, px - half)
+        x1 = min(img_w, px + half)
+        y0 = max(0, py - half)
+        y1 = min(img_h, py + half)
+        valid = self._fits_data[y0:y1, x0:x1]
+        canvas = np.full((half * 2, half * 2), np.median(valid), dtype=self._fits_data.dtype)
+        dx = x0 - (px - half)
+        dy = y0 - (py - half)
+        canvas[dy:dy + (y1 - y0), dx:dx + (x1 - x0)] = valid
+        self._hover_cutout = canvas
         self._zoom_area.queue_draw()
 
     # ------------------------------------------------------------------
@@ -358,21 +409,19 @@ class PreviewPanel(Gtk.Frame):
         cr.rectangle(0.5, 0.5, width - 1, height - 1)
         cr.stroke()
 
-        result = self._psf_result
-
         cr.select_font_face("sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
         cr.set_font_size(11)
 
-        if result is None:
-            msg = "No image captured yet" if self._current_fits_path is None else "Click a star to zoom"
+        cutout = self._hover_cutout
+        if cutout is None and self._psf_result is not None:
+            cutout = self._psf_result.cutout_display
+
+        if cutout is None:
+            msg = "No image captured yet" if self._current_fits_path is None else "Hover over image to zoom"
             cr.set_source_rgb(0.25, 0.25, 0.28)
             te = cr.text_extents(msg)
             cr.move_to((width - te.width) / 2, height / 2 + te.height / 2)
             cr.show_text(msg)
-            return
-
-        cutout = result.cutout_display
-        if cutout is None:
             return
 
         import numpy as np
