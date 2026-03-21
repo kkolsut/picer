@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 
@@ -27,6 +28,8 @@ class PSFResult:
     # Click location (informational)
     fits_x: int = 0
     fits_y: int = 0
+    # Raw cutout before background subtraction (for zoom display)
+    cutout_display: Optional[np.ndarray] = None
 
 
 def compute_psf(
@@ -67,6 +70,7 @@ def compute_psf(
         )
 
     cutout = data[y0:y1, x0:x1].copy()
+    cutout_raw = cutout.copy()  # saved before background subtraction for zoom display
 
     # ── Background: median of 4-pixel border ring ─────────────────────
     border_mask = np.zeros(cutout.shape, dtype=bool)
@@ -84,7 +88,7 @@ def compute_psf(
     if total <= 0:
         return PSFResult(
             fit_ok=False, fit_error="No signal above background",
-            fits_x=fits_x, fits_y=fits_y,
+            fits_x=fits_x, fits_y=fits_y, cutout_display=cutout_raw,
         )
     cy_h, cy_w = cutout.shape
     yy, xx = np.mgrid[0:cy_h, 0:cy_w]
@@ -109,7 +113,7 @@ def compute_psf(
         return PSFResult(
             fit_ok=False, fit_error="Too few radial bins",
             r_values=r_values, i_values=i_values,
-            fits_x=fits_x, fits_y=fits_y,
+            fits_x=fits_x, fits_y=fits_y, cutout_display=cutout_raw,
         )
 
     r_arr = np.array(r_values)
@@ -133,7 +137,7 @@ def compute_psf(
         return PSFResult(
             fit_ok=False, fit_error=f"Fit failed: {exc}",
             r_values=r_values, i_values=i_values,
-            fits_x=fits_x, fits_y=fits_y,
+            fits_x=fits_x, fits_y=fits_y, cutout_display=cutout_raw,
         )
 
     A_fit, sigma_fit = float(popt[0]), float(popt[1])
@@ -155,4 +159,5 @@ def compute_psf(
         fit_i=fit_i_arr.tolist(),
         fits_x=fits_x,
         fits_y=fits_y,
+        cutout_display=cutout_raw,
     )

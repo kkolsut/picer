@@ -29,6 +29,7 @@ class PreviewPanel(Gtk.Frame):
         self.set_vexpand(True)
 
         self._stack = Gtk.Stack()
+        self._stack.set_vexpand(True)
 
         # Placeholder page
         self._placeholder_label = Gtk.Label(label="No image captured yet")
@@ -50,11 +51,21 @@ class PreviewPanel(Gtk.Frame):
         self._fwhm_label = Gtk.Label(label="")
         self._fwhm_label.set_xalign(0.5)
 
-        # PSF drawing area (hidden until first click)
+        # Bottom row: PSF diagram on the left, zoom view on the right
         self._psf_area = Gtk.DrawingArea()
-        self._psf_area.set_content_width(380)
         self._psf_area.set_content_height(220)
+        self._psf_area.set_hexpand(True)
         self._psf_area.set_draw_func(self._draw_psf)
+
+        self._zoom_area = Gtk.DrawingArea()
+        self._zoom_area.set_content_width(220)
+        self._zoom_area.set_content_height(220)
+        self._zoom_area.set_draw_func(self._draw_zoom)
+
+        bottom_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        bottom_row.append(self._psf_area)
+        bottom_row.append(self._zoom_area)
+
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         outer.set_margin_start(8)
         outer.set_margin_end(8)
@@ -63,7 +74,7 @@ class PreviewPanel(Gtk.Frame):
         outer.append(self._stack)
         outer.append(self._info_label)
         outer.append(self._fwhm_label)
-        outer.append(self._psf_area)
+        outer.append(bottom_row)
         self.set_child(outer)
 
         self._stack.set_visible_child_name("placeholder")
@@ -139,6 +150,7 @@ class PreviewPanel(Gtk.Frame):
         self._psf_result = None
         self._fwhm_label.set_text("")
         self._psf_area.queue_draw()
+        self._zoom_area.queue_draw()
 
     def clear(self) -> None:
         self._placeholder_label.set_label("No image captured yet")
@@ -148,6 +160,7 @@ class PreviewPanel(Gtk.Frame):
         self._current_fits_path = None
         self._psf_result = None
         self._psf_area.queue_draw()
+        self._zoom_area.queue_draw()
 
     # ------------------------------------------------------------------
     # Click → PSF
@@ -190,6 +203,7 @@ class PreviewPanel(Gtk.Frame):
             )
 
         self._psf_area.queue_draw()
+        self._zoom_area.queue_draw()
 
     # ------------------------------------------------------------------
     # Cairo PSF plot
@@ -211,32 +225,19 @@ class PreviewPanel(Gtk.Frame):
         cr.set_source_rgb(0.10, 0.10, 0.12)
         cr.paint()
 
-        if result is None:
-            cr.set_source_rgb(0.25, 0.25, 0.28)
-            cr.select_font_face("sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
-            cr.set_font_size(12)
-            msg = "Click a star to analyse its PSF"
-            cr.move_to(width / 2 - 100, height / 2)
-            cr.show_text(msg)
-            return
-
-        if not result.r_values and not result.fit_ok:
-            cr.set_source_rgb(0.5, 0.5, 0.5)
-            cr.select_font_face("sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
-            cr.set_font_size(13)
-            cr.move_to(width / 2 - 30, height / 2)
-            cr.show_text("No data")
-            return
-
         pad_l, pad_r, pad_t, pad_b = 52, 20, 20, 40
         plot_w = width  - pad_l - pad_r
         plot_h = height - pad_t - pad_b
 
-        r_vals = result.r_values
-        i_vals = result.i_values
-        r_max  = max(r_vals) if r_vals else 1.0
-        i_max  = max(i_vals) if i_vals else 1.0
-        if result.fit_ok:
+        has_data = result is not None and bool(result.r_values)
+
+        r_vals = result.r_values if has_data else []
+        i_vals = result.r_values if has_data else []
+        if has_data:
+            i_vals = result.i_values
+        r_max = max(r_vals) if r_vals else 32.0
+        i_max = max(i_vals) if i_vals else 1.0
+        if result is not None and result.fit_ok:
             i_max = max(i_max, result.amplitude)
 
         def to_screen(r: float, i: float) -> tuple[float, float]:
@@ -244,7 +245,7 @@ class PreviewPanel(Gtk.Frame):
             sy = pad_t + plot_h - (i / i_max) * plot_h
             return sx, sy
 
-        # Axes
+        # Axes — always drawn
         cr.set_source_rgb(0.4, 0.4, 0.4)
         cr.set_line_width(1)
         cr.move_to(pad_l, pad_t + plot_h)
@@ -254,7 +255,7 @@ class PreviewPanel(Gtk.Frame):
         cr.line_to(pad_l, pad_t + plot_h)
         cr.stroke()
 
-        # Tick marks & labels
+        # Tick marks & labels — always drawn
         cr.set_source_rgb(0.55, 0.55, 0.55)
         cr.select_font_face("monospace", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
         cr.set_font_size(10)
@@ -270,8 +271,19 @@ class PreviewPanel(Gtk.Frame):
             cr.move_to(pad_l - 4, ty_t); cr.line_to(pad_l, ty_t); cr.stroke()
             cr.move_to(2, ty_t + 4); cr.show_text(label)
 
+        # Hint when no data yet
+        if not has_data:
+            cr.set_source_rgb(0.25, 0.25, 0.28)
+            cr.select_font_face("sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+            cr.set_font_size(11)
+            msg = "Click a star to analyse its PSF"
+            te = cr.text_extents(msg)
+            cr.move_to((width - te.width) / 2, (height + pad_t - pad_b) / 2)
+            cr.show_text(msg)
+            return
+
         # Half-max dotted line + FWHM ticks
-        if result.fit_ok:
+        if result is not None and result.fit_ok:
             half_max = result.amplitude / 2
             hm_y = pad_t + plot_h - (half_max / i_max) * plot_h
             cr.set_source_rgba(0.7, 0.7, 0.3, 0.6)
@@ -305,7 +317,7 @@ class PreviewPanel(Gtk.Frame):
                 cr.fill()
 
         # Gaussian fit curve (orange)
-        if result.fit_ok and result.fit_r:
+        if result is not None and result.fit_ok and result.fit_r:
             cr.set_source_rgb(0.95, 0.5, 0.1)
             cr.set_line_width(2)
             first = True
@@ -316,8 +328,97 @@ class PreviewPanel(Gtk.Frame):
             cr.stroke()
 
         # Error overlay
-        if not result.fit_ok and result.fit_error:
+        if result is not None and not result.fit_ok and result.fit_error:
             cr.set_source_rgba(0.9, 0.3, 0.3, 0.85)
             cr.set_font_size(11)
             cr.move_to(pad_l + 6, pad_t + 18)
             cr.show_text(result.fit_error)
+
+    # ------------------------------------------------------------------
+    # Cairo zoom view
+    # ------------------------------------------------------------------
+
+    def _draw_zoom(
+        self,
+        area: Gtk.DrawingArea,
+        cr: "cairo.Context",
+        width: int,
+        height: int,
+    ) -> None:
+        if not _HAS_CAIRO:
+            return
+
+        # Background
+        cr.set_source_rgb(0.10, 0.10, 0.12)
+        cr.paint()
+
+        # Border
+        cr.set_source_rgb(0.25, 0.25, 0.30)
+        cr.set_line_width(1)
+        cr.rectangle(0.5, 0.5, width - 1, height - 1)
+        cr.stroke()
+
+        result = self._psf_result
+
+        cr.select_font_face("sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+        cr.set_font_size(11)
+
+        if result is None:
+            msg = "No image captured yet" if self._current_fits_path is None else "Click a star to zoom"
+            cr.set_source_rgb(0.25, 0.25, 0.28)
+            te = cr.text_extents(msg)
+            cr.move_to((width - te.width) / 2, height / 2 + te.height / 2)
+            cr.show_text(msg)
+            return
+
+        cutout = result.cutout_display
+        if cutout is None:
+            return
+
+        import numpy as np
+
+        # Stretch for display
+        lo, hi = np.percentile(cutout, [0.5, 99.5])
+        span = hi - lo if hi != lo else 1.0
+        stretched = np.clip((cutout - lo) / span * 255, 0, 255).astype(np.uint8)
+        ch, cw = stretched.shape
+
+        # Build Cairo ARGB32 surface (byte order BGRA on little-endian)
+        argb = np.zeros((ch, cw, 4), dtype=np.uint8)
+        argb[:, :, 0] = stretched  # B
+        argb[:, :, 1] = stretched  # G
+        argb[:, :, 2] = stretched  # R
+        argb[:, :, 3] = 255        # A
+        argb_c = np.ascontiguousarray(argb)
+        surface = cairo.ImageSurface.create_for_data(
+            argb_c, cairo.FORMAT_ARGB32, cw, ch
+        )
+
+        # Scale to fill widget (with padding), preserving aspect ratio
+        pad = 4
+        scale = min((width - pad * 2) / cw, (height - pad * 2) / ch)
+        ox = (width - cw * scale) / 2
+        oy = (height - ch * scale) / 2
+
+        cr.save()
+        cr.translate(ox, oy)
+        cr.scale(scale, scale)
+        cr.set_source_surface(surface, 0, 0)
+        cr.get_source().set_filter(cairo.FILTER_NEAREST)  # crisp pixels for stars
+        cr.paint()
+        cr.restore()
+
+        # Crosshair at centre of cutout
+        cx_s = ox + (cw / 2) * scale
+        cy_s = oy + (ch / 2) * scale
+        arm = 10
+        cr.set_source_rgba(1.0, 0.25, 0.25, 0.85)
+        cr.set_line_width(1)
+        cr.move_to(cx_s - arm, cy_s); cr.line_to(cx_s + arm, cy_s); cr.stroke()
+        cr.move_to(cx_s, cy_s - arm); cr.line_to(cx_s, cy_s + arm); cr.stroke()
+
+        # Label
+        cr.set_source_rgb(0.55, 0.55, 0.60)
+        cr.set_font_size(10)
+        cr.move_to(6, height - 5)
+        cr.show_text(f"Zoom  {cw}×{ch} px")
