@@ -22,6 +22,7 @@ from picer.camera.models import BulbProgress, CameraConfig, CaptureResult, Seque
 from picer.core.controller import CameraController
 from picer.gui.panels.exposure_panel import ExposurePanel
 from picer.gui.panels.format_panel import FormatPanel
+from picer.gui.panels.gear_panel import GearPanel
 from picer.gui.panels.iso_panel import ISOPanel
 from picer.gui.panels.output_panel import OutputPanel
 from picer.gui.panels.preview_panel import PreviewPanel
@@ -43,7 +44,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
         self._connect_btn = Gtk.Button(label="Connect")
         css = Gtk.CssProvider()
-        css.load_from_string("button { min-width: 110px; max-width: 110px; }")
+        css.load_from_string("button { min-width: 110px; }")
         self._connect_btn.get_style_context().add_provider(css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self._connect_btn.connect("clicked", self._on_connect_clicked)
         header.pack_start(self._connect_btn)
@@ -58,16 +59,30 @@ class MainWindow(Gtk.ApplicationWindow):
         paned.set_position(340)
         self.set_child(paned)
 
-        # Left: scrollable settings column
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroll.set_min_content_width(280)
+        # Left: tabbed settings column
+        notebook = Gtk.Notebook()
+        notebook.set_tab_pos(Gtk.PositionType.TOP)
+        notebook.set_size_request(1, -1)
+        paned.set_start_child(notebook)
 
-        left_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        scroll.set_child(left_box)
-        paned.set_start_child(scroll)
+        # Tab 1 — Capture
+        capture_scroll = Gtk.ScrolledWindow()
+        capture_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        capture_scroll.set_min_content_width(280)
+        capture_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        capture_scroll.set_child(capture_box)
+        notebook.append_page(capture_scroll, Gtk.Label(label="Capture"))
+
+        # Tab 2 — Gear
+        gear_scroll = Gtk.ScrolledWindow()
+        gear_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        gear_scroll.set_min_content_width(280)
+        gear_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        gear_scroll.set_child(gear_box)
+        notebook.append_page(gear_scroll, Gtk.Label(label="Gear"))
 
         # Panels
+        self._gear_panel = GearPanel()
         self._exposure_panel = ExposurePanel()
         self._iso_panel = ISOPanel()
         self._format_panel = FormatPanel()
@@ -77,11 +92,12 @@ class MainWindow(Gtk.ApplicationWindow):
         )
         self._output_panel = OutputPanel()
 
-        left_box.append(self._exposure_panel)
-        left_box.append(self._iso_panel)
-        left_box.append(self._format_panel)
-        left_box.append(self._sequence_panel)
-        left_box.append(self._output_panel)
+        gear_box.append(self._gear_panel)
+        capture_box.append(self._exposure_panel)
+        capture_box.append(self._iso_panel)
+        capture_box.append(self._format_panel)
+        capture_box.append(self._sequence_panel)
+        capture_box.append(self._output_panel)
 
         # Right: preview
         self._preview_panel = PreviewPanel()
