@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import threading
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -11,6 +11,9 @@ from gi.repository import GLib, Gtk, Pango  # noqa: E402
 from picer.objects import catalog as cat_module
 from picer.objects import store
 from picer.objects.models import DeepSkyObject
+
+if TYPE_CHECKING:
+    from picer.core.api_client import APIClient
 
 
 # ── Geocoding ─────────────────────────────────────────────────────────────────
@@ -141,8 +144,9 @@ class _SaveLocationDialog(Gtk.Window):
 # ── Panel ─────────────────────────────────────────────────────────────────────
 
 class ObjectPanel(Gtk.Frame):
-    def __init__(self) -> None:
+    def __init__(self, client: Optional["APIClient"] = None) -> None:
         super().__init__(label="Object")
+        self._client = client
         self.set_margin_start(8)
         self.set_margin_end(8)
         self.set_margin_top(4)
@@ -338,7 +342,10 @@ class ObjectPanel(Gtk.Frame):
     # ------------------------------------------------------------------
 
     def _load_persisted(self) -> None:
-        sel_cat, sel_desig, lat, lon = store.load_observer()
+        if self._client is not None:
+            sel_cat, sel_desig, lat, lon = self._client.get_observer()
+        else:
+            sel_cat, sel_desig, lat, lon = store.load_observer()
         if lat is not None:
             self._lat_entry.set_text(str(lat))
         if lon is not None:
@@ -378,7 +385,10 @@ class ObjectPanel(Gtk.Frame):
         self._do_find(cat, query)
 
     def _do_find(self, cat: str, query: str) -> None:
-        obj = cat_module.find_object(cat, query)
+        if self._client is not None:
+            obj = self._client.search_object(cat, query)
+        else:
+            obj = cat_module.find_object(cat, query)
         if obj is None:
             self._info_name.set_markup('<span foreground="red">Not found</span>')
             self._info_type.set_text("")
@@ -389,7 +399,10 @@ class ObjectPanel(Gtk.Frame):
             return
 
         self._current_obj = obj
-        store.save_selection(cat, obj.designation)
+        if self._client is not None:
+            self._client.save_selection(cat, obj.designation)
+        else:
+            store.save_selection(cat, obj.designation)
 
         if obj.name:
             self._info_name.set_markup(f"<b>{obj.designation}</b> — {obj.name}")
@@ -464,7 +477,10 @@ class ObjectPanel(Gtk.Frame):
 
     def _on_location_changed(self, _entry: Gtk.Entry) -> None:
         lat, lon = self._parse_location()
-        store.save_location(lat, lon)
+        if self._client is not None:
+            self._client.save_location(lat, lon)
+        else:
+            store.save_location(lat, lon)
         self._update_ha_visibility()
 
     def _apply_latlon(self, lat: float, lon: float) -> None:
@@ -478,7 +494,10 @@ class ObjectPanel(Gtk.Frame):
     # ------------------------------------------------------------------
 
     def _refresh_favorites(self) -> None:
-        favs = store.load_favorites()
+        if self._client is not None:
+            favs = self._client.get_favorites()
+        else:
+            favs = store.load_favorites()
         while self._fav_combo.get_model() and \
                 self._fav_combo.get_model().iter_n_children(None) > 0:
             self._fav_combo.remove(0)
@@ -493,7 +512,11 @@ class ObjectPanel(Gtk.Frame):
         name = self._fav_combo.get_active_id()
         if name is None:
             return
-        for f in store.load_favorites():
+        if self._client is not None:
+            favs = self._client.get_favorites()
+        else:
+            favs = store.load_favorites()
+        for f in favs:
             if f["name"] == name:
                 self._apply_latlon(f["lat"], f["lon"])
                 break
@@ -512,7 +535,10 @@ class ObjectPanel(Gtk.Frame):
         dlg.present()
 
     def _do_save_favorite(self, name: str, lat: float, lon: float) -> None:
-        store.add_favorite(name, lat, lon)
+        if self._client is not None:
+            self._client.add_favorite(name, lat, lon)
+        else:
+            store.add_favorite(name, lat, lon)
         self._refresh_favorites()
         # Select the just-saved entry
         self._fav_combo.set_active_id(name)

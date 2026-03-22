@@ -130,6 +130,22 @@ def update_custom_optic(old_name: str, optic: GearOptic) -> None:
     _save_raw(data)
 
 
+def delete_custom_camera(name: str) -> None:
+    data = _load_raw()
+    data["cameras"] = [c for c in data.get("cameras", []) if c["name"] != name]
+    if data.get("selected_camera") == name:
+        data["selected_camera"] = None
+    _save_raw(data)
+
+
+def delete_custom_optic(name: str) -> None:
+    data = _load_raw()
+    data["optics"] = [o for o in data.get("optics", []) if o["name"] != name]
+    if data.get("selected_optic") == name:
+        data["selected_optic"] = None
+    _save_raw(data)
+
+
 def add_custom_optic(optic: GearOptic) -> None:
     data = _load_raw()
     optics = data.get("optics", [])

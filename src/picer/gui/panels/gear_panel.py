@@ -2,14 +2,16 @@
 from __future__ import annotations
 
 import math
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 import gi
 
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Pango  # noqa: E402
 
-from picer.gear import store
 from picer.gear.models import GearCamera, GearOptic
+
+if TYPE_CHECKING:
+    from picer.core.api_client import APIClient
 
 
 def _fov_plate(cam: GearCamera, optic: GearOptic) -> str:
@@ -20,11 +22,13 @@ def _fov_plate(cam: GearCamera, optic: GearOptic) -> str:
 
 
 class GearPanel(Gtk.Frame):
-    def __init__(self) -> None:
+    def __init__(self, client: Optional["APIClient"] = None) -> None:
         super().__init__(label="Gear")
         self.set_margin_start(8)
         self.set_margin_end(8)
         self.set_margin_top(4)
+
+        self._client = client
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         outer.set_margin_start(12)
@@ -107,7 +111,12 @@ class GearPanel(Gtk.Frame):
     # ------------------------------------------------------------------
 
     def _load(self) -> None:
-        cameras, optics, sel_cam, sel_optic = store.load_gear()
+        if self._client is not None:
+            cameras, optics, sel_cam, sel_optic = self._client.get_gear()
+        else:
+            from picer.gear import store
+            cameras, optics, sel_cam, sel_optic = store.load_gear()
+
         self._cameras = cameras
         self._optics = optics
 
@@ -143,10 +152,17 @@ class GearPanel(Gtk.Frame):
 
     def _on_changed(self, _combo: Gtk.ComboBoxText) -> None:
         self._update_labels()
-        store.save_selection(
-            self._cam_combo.get_active_id(),
-            self._optic_combo.get_active_id(),
-        )
+        if self._client is not None:
+            self._client.save_gear_selection(
+                self._cam_combo.get_active_id(),
+                self._optic_combo.get_active_id(),
+            )
+        else:
+            from picer.gear import store
+            store.save_selection(
+                self._cam_combo.get_active_id(),
+                self._optic_combo.get_active_id(),
+            )
 
     def _update_labels(self) -> None:
         cam = self._selected_camera()
@@ -194,15 +210,16 @@ class GearPanel(Gtk.Frame):
         if existing is None or not existing.custom:
             return
         root = self.get_root()
-        dlg = AddGearDialog(parent=root, mode=mode, on_added=self._load, existing=existing)
+        dlg = AddGearDialog(
+            parent=root, mode=mode, on_added=self._load,
+            existing=existing, client=self._client,
+        )
         dlg.present()
 
     def _open_add_dialog(self, mode: str) -> None:
         from picer.gui.dialogs.add_gear_dialog import AddGearDialog
         root = self.get_root()
         dlg = AddGearDialog(
-            parent=root,
-            mode=mode,
-            on_added=self._load,
+            parent=root, mode=mode, on_added=self._load, client=self._client,
         )
         dlg.present()
