@@ -32,6 +32,32 @@ from picer.gui.panels.sequence_panel import SequencePanel
 logger = logging.getLogger(__name__)
 
 
+class _FitsHeaderDialog(Gtk.Window):
+    def __init__(self, parent: Gtk.Window, fits_path: Path) -> None:
+        super().__init__()
+        self.set_title(f"FITS Header — {fits_path.name}")
+        self.set_transient_for(parent)
+        self.set_default_size(700, 500)
+
+        from astropy.io import fits as astrofits
+        try:
+            hdr = astrofits.getheader(str(fits_path))
+            text = hdr.tostring(sep="\n", padding=False)
+        except Exception as exc:
+            text = f"Could not read header:\n{exc}"
+
+        tv = Gtk.TextView()
+        tv.set_editable(False)
+        tv.set_cursor_visible(False)
+        tv.set_monospace(True)
+        tv.get_buffer().set_text(text)
+
+        sw = Gtk.ScrolledWindow()
+        sw.set_child(tv)
+        sw.set_vexpand(True)
+        self.set_child(sw)
+
+
 class MainWindow(Gtk.ApplicationWindow):
     def __init__(self, app: Gtk.Application, controller: CameraController) -> None:
         super().__init__(application=app, title="Picer — Astronomy Capture")
@@ -109,6 +135,15 @@ class MainWindow(Gtk.ApplicationWindow):
         capture_box.append(self._format_panel)
         capture_box.append(self._sequence_panel)
         capture_box.append(self._output_panel)
+
+        self._fits_hdr_btn = Gtk.Button(label="FITS Header")
+        self._fits_hdr_btn.set_sensitive(False)
+        self._fits_hdr_btn.set_margin_start(8)
+        self._fits_hdr_btn.set_margin_end(8)
+        self._fits_hdr_btn.set_margin_top(4)
+        self._fits_hdr_btn.set_margin_bottom(4)
+        self._fits_hdr_btn.connect("clicked", self._on_show_fits_header)
+        capture_box.append(self._fits_hdr_btn)
 
         # Right: preview
         self._preview_panel = PreviewPanel()
@@ -239,10 +274,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 self._on_sequence_complete, results
             ),
             on_fits_ready=lambda result, paths: GLib.idle_add(
-                self._preview_panel.show_fits,
-                paths["G"],
-                result.exposure_s,
-                result.iso,
+                self._on_fits_ready, result, paths
             ),
         )
 
@@ -250,6 +282,17 @@ class MainWindow(Gtk.ApplicationWindow):
         self._controller.stop_sequence()
         self._sequence_panel.set_running(False)
         self._sequence_panel.set_status("Stopped")
+
+    def _on_fits_ready(self, result: CaptureResult, paths: dict) -> bool:
+        self._preview_panel.show_fits(paths["G"], result.exposure_s, result.iso)
+        self._fits_hdr_btn.set_sensitive(True)
+        return GLib.SOURCE_REMOVE
+
+    def _on_show_fits_header(self, _btn: Gtk.Button) -> None:
+        path = self._preview_panel.get_current_fits_path()
+        if path is None:
+            return
+        _FitsHeaderDialog(self, path).present()
 
     def _on_frame_complete(self, result: CaptureResult) -> bool:
         self._sequence_panel.set_status(f"Saved: {result.file_path.name}")
