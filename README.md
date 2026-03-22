@@ -14,6 +14,20 @@ Astronomy DSLR capture application for Canon EOS cameras. Controls the camera vi
 - **Rich FITS headers** — EXPTIME, ISOSPEED, UT-DATE, UT-START, JULDAT, HELJD, OBJECT, IMAGETYP, TELESCOP, DETECTOR, RA, DEC, HA, AIRMASS, SITELAT, SITELONG, FOCALLEN, APTDIA, XPIXSZ/YPIXSZ and more
 - **FITS preview** — live stretch, click-to-analyse PSF (FWHM), real-time zoom box
 - **FITS header viewer** — inspect the full header of the last captured frame without leaving the app
+- **File browser** — browse all captures on the server, select and download RAW (CR2) and/or FITS files to any local directory; optional server-side delete after download
+- **REST API** — built-in FastAPI server; web UI (`/docs`) and JSON API available whenever the GUI is running
+
+---
+
+## Architecture
+
+Picer uses a client-server architecture. The **API server** (`picer-api`) controls the camera via libgphoto2 and exposes a REST + WebSocket API. The **GTK GUI** (`picer-gui`) connects to it over HTTP.
+
+```
+picer-gui  ──HTTP/WS──►  picer-api  ──USB──►  Canon EOS
+```
+
+When running on a **single machine**, `picer-gui` starts the API server automatically in the background — no manual server management needed. For a **headless camera machine** (e.g. Raspberry Pi), run `picer-api` on the Pi and point the GUI on your laptop at it with `--server`.
 
 ---
 
@@ -53,14 +67,58 @@ If using a camera other than Canon EOS 450D, find your camera's USB vendor/produ
 
 ## Running
 
+### Single machine (most common)
+
 ```bash
-# GUI (recommended)
 picer-gui
+```
 
-# CLI — single capture
+The GUI automatically starts the API server in the background on `127.0.0.1:8765`. Nothing else is needed.
+
+### Headless camera machine (Raspberry Pi, etc.)
+
+On the machine connected to the camera:
+
+```bash
+picer-api                        # binds to 0.0.0.0:8765 by default
+picer-api --host 0.0.0.0 --port 8765
+```
+
+On your laptop / desktop:
+
+```bash
+picer-gui --server http://raspberry-pi.local:8765
+```
+
+Or set the environment variable instead of the flag:
+
+```bash
+export PICER_SERVER_URL=http://raspberry-pi.local:8765
+picer-gui
+```
+
+### API server options
+
+```
+picer-api [--host HOST] [--port PORT] [--log-level LEVEL]
+
+  --host        Bind address (default: 0.0.0.0)
+  --port        Port (default: 8765)
+  --log-level   debug | info | warning | error (default: info)
+```
+
+### Web interface
+
+Whenever the API server is running (including in embedded mode), the auto-generated API docs are available at:
+
+```
+http://localhost:8765/docs
+```
+
+### CLI — single capture (no GUI)
+
+```bash
 picer capture --output ~/captures
-
-# CLI help
 picer --help
 ```
 
@@ -79,6 +137,7 @@ Controls for taking pictures.
 | **Format** | RAW (.cr2), JPEG, or RAW + JPEG |
 | **Sequence** | Frame type, frame count, start-to-start interval |
 | **Output** | Output directory and filename template (see tokens below) |
+| **Download** | Download RAW/FITS files from the server after a sequence |
 | **FITS Header** | Opens a scrollable view of the last captured frame's FITS header |
 
 **Filename template tokens**
@@ -104,6 +163,22 @@ Default template: `{type}_{date}_{seq:04d}`
 | Dark | Same exposure/ISO as lights, lens cap on |
 | Flat | Illuminated flat field for vignetting correction |
 | Bias | Shortest exposure, lens cap on |
+
+---
+
+### Download panel
+
+Located at the bottom of the Capture tab.
+
+After a sequence completes, **Download RAW files (N)** is enabled and downloads the just-captured files. Tick **Delete from server after download** to free space on the camera machine automatically.
+
+**Browse…** opens the file browser dialog, which lets you:
+
+- Scan any directory on the server for CR2 captures and their FITS files
+- Select individual captures with checkboxes (Select All / Deselect All)
+- Choose what to download: **RAW (CR2)**, **FITS (R, G, B channels)**, or both
+- Set the local destination directory
+- Optionally delete the server copies after downloading
 
 ---
 
