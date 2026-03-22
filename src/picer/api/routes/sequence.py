@@ -58,6 +58,8 @@ def start_sequence(body: dict, user: Annotated[str, Depends(require_auth)]):
                 "frame": result.frame_index + 1,
                 "file": result.file_path.name,
                 "capture_id": capture_id,
+                "exposure_s": result.exposure_s,
+                "iso": result.iso,
             }
         )
 
@@ -96,6 +98,8 @@ def start_sequence(body: dict, user: Annotated[str, Depends(require_auth)]):
                 "event": "fits_ready",
                 "frame": result.frame_index + 1,
                 "capture_id": capture_id,
+                "exposure_s": result.exposure_s,
+                "iso": result.iso,
                 "paths": {k: str(v) for k, v in paths.items()},
             }
         )

@@ -84,6 +84,8 @@ class SequenceRunner:
         if seq_start > 1:
             logger.info("Existing files detected; starting sequence at seq=%d", seq_start)
 
+        fits_threads: list[threading.Thread] = []
+
         for idx in range(cfg.frame_count):
             if self._cancel_event.is_set():
                 logger.info("Sequence cancelled before frame %d", idx)
@@ -159,7 +161,9 @@ class SequenceRunner:
                         except Exception as exc:
                             logger.warning("FITS conversion failed: %s", exc)
 
-                    threading.Thread(target=_do_convert, daemon=True).start()
+                    t = threading.Thread(target=_do_convert, daemon=True)
+                    t.start()
+                    fits_threads.append(t)
 
             except Exception as exc:
                 logger.error("Frame %d failed: %s", idx, exc)
@@ -175,6 +179,13 @@ class SequenceRunner:
                 wait = cfg.interval_s - elapsed
                 if wait > 0:
                     self._cancel_event.wait(timeout=wait)
+
+        # Wait for all FITS conversions to finish before declaring sequence complete.
+        # This ensures on_fits_ready fires before on_sequence_complete, which matters
+        # for the API server: the WebSocket closes on sequence_complete, so all
+        # fits_ready events must be published first.
+        for t in fits_threads:
+            t.join()
 
         if self._on_sequence_complete:
             self._on_sequence_complete(results)

@@ -112,6 +112,30 @@ def delete_capture(capture_id: str, user: Annotated[str, Depends(require_auth)])
     state.captures.delete(capture_id)
 
 
+@router.get("/captures/{capture_id}/fits/{channel}")
+def download_fits(
+    capture_id: str,
+    channel: str,
+    user: Annotated[str, Depends(require_auth)],
+):
+    """Download a FITS channel file (R, G, or B)."""
+    state.session.touch()
+    record = state.captures.get(capture_id)
+    if record is None:
+        raise HTTPException(404, "Capture not found")
+
+    channel = channel.upper()
+    path = record.fits_paths.get(channel)
+    if not path or not path.exists():
+        raise HTTPException(404, f"FITS channel {channel} not available")
+
+    return FileResponse(
+        path,
+        media_type="application/fits",
+        filename=path.name,
+    )
+
+
 @router.get("/captures/{capture_id}/psf")
 def capture_psf(
     capture_id: str,

@@ -1,14 +1,16 @@
 """Dialog for adding a custom camera or optic."""
 from __future__ import annotations
 
-from typing import Callable, Literal, Optional, Union
+from typing import TYPE_CHECKING, Callable, Literal, Optional, Union
 import gi
 
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # noqa: E402
 
 from picer.gear.models import GearCamera, GearOptic
-from picer.gear import store
+
+if TYPE_CHECKING:
+    from picer.core.api_client import APIClient
 
 
 def _labeled(label: str, widget: Gtk.Widget) -> Gtk.Box:
@@ -44,11 +46,13 @@ class AddGearDialog(Gtk.Window):
         mode: Literal["camera", "optic"],
         on_added: Callable[[], None],
         existing: Optional[Union[GearCamera, GearOptic]] = None,
+        client: Optional["APIClient"] = None,
     ) -> None:
         super().__init__()
         self._mode = mode
         self._on_added = on_added
         self._existing = existing
+        self._client = client
         editing = existing is not None
 
         if editing:
@@ -127,10 +131,17 @@ class AddGearDialog(Gtk.Window):
                 pixel_um=self._pixel_um.get_value(),
                 custom=True,
             )
-            if self._existing:
-                store.update_custom_camera(self._existing.name, cam)
+            if self._client is not None:
+                if self._existing:
+                    self._client.update_gear_camera(self._existing.name, cam)
+                else:
+                    self._client.add_gear_camera(cam)
             else:
-                store.add_custom_camera(cam)
+                from picer.gear import store
+                if self._existing:
+                    store.update_custom_camera(self._existing.name, cam)
+                else:
+                    store.add_custom_camera(cam)
         else:
             optic = GearOptic(
                 name=name,
@@ -138,10 +149,17 @@ class AddGearDialog(Gtk.Window):
                 aperture_mm=self._aperture.get_value(),
                 custom=True,
             )
-            if self._existing:
-                store.update_custom_optic(self._existing.name, optic)
+            if self._client is not None:
+                if self._existing:
+                    self._client.update_gear_optic(self._existing.name, optic)
+                else:
+                    self._client.add_gear_optic(optic)
             else:
-                store.add_custom_optic(optic)
+                from picer.gear import store
+                if self._existing:
+                    store.update_custom_optic(self._existing.name, optic)
+                else:
+                    store.add_custom_optic(optic)
 
         self._on_added()
         self.close()

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 import threading
 from pathlib import Path
 from typing import Optional
@@ -17,9 +18,8 @@ try:
 except (ValueError, ImportError):
     _HAS_ADW = False
 
-from picer.camera.mock_backend import MockBackend
-from picer.camera.models import BulbProgress, CameraConfig, CaptureResult, ObservationMetadata, SequenceConfig
-from picer.core.controller import CameraController
+from picer.camera.models import CameraConfig, ObservationMetadata, SequenceConfig
+from picer.core.api_client import APIClient
 from picer.gui.panels.exposure_panel import ExposurePanel
 from picer.gui.panels.format_panel import FormatPanel
 from picer.gui.panels.gear_panel import GearPanel
@@ -59,11 +59,12 @@ class _FitsHeaderDialog(Gtk.Window):
 
 
 class MainWindow(Gtk.ApplicationWindow):
-    def __init__(self, app: Gtk.Application, controller: CameraController) -> None:
+    def __init__(self, app: Gtk.Application, client: APIClient) -> None:
         super().__init__(application=app, title="Picer — Astronomy Capture")
         self.set_default_size(900, 650)
 
-        self._controller = controller
+        self._client = client
+        self._current_fits_tmp: Optional[Path] = None  # tempfile for last downloaded FITS
 
         # ── Header bar ────────────────────────────────────────────────
         header = Gtk.HeaderBar()
@@ -100,7 +101,7 @@ class MainWindow(Gtk.ApplicationWindow):
         capture_scroll.set_child(capture_box)
         notebook.append_page(capture_scroll, Gtk.Label(label="Capture"))
 
-        # Tab 2 — Object (inserted between Capture and Gear)
+        # Tab 2 — Object
         object_scroll = Gtk.ScrolledWindow()
         object_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         object_scroll.set_min_content_width(280)
@@ -117,8 +118,8 @@ class MainWindow(Gtk.ApplicationWindow):
         notebook.append_page(gear_scroll, Gtk.Label(label="Gear"))
 
         # Panels
-        self._object_panel = ObjectPanel()
-        self._gear_panel = GearPanel()
+        self._object_panel = ObjectPanel(client=client)
+        self._gear_panel = GearPanel(client=client)
         self._exposure_panel = ExposurePanel()
         self._iso_panel = ISOPanel()
         self._format_panel = FormatPanel()
@@ -162,8 +163,8 @@ class MainWindow(Gtk.ApplicationWindow):
     # ------------------------------------------------------------------
 
     def _on_connect_clicked(self, _btn: Gtk.Button) -> None:
-        if self._controller.is_connected():
-            self._controller.disconnect()
+        if self._client.is_connected():
+            self._client.disconnect()
             self._set_connected_state(False)
             return
 
@@ -173,7 +174,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self._status_dot.set_tooltip_text("Connecting…")
 
         def _worker() -> None:
-            ok, msg = self._controller.connect()
+            ok, msg = self._client.connect()
             GLib.idle_add(self._on_connect_result, ok, msg)
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -251,14 +252,14 @@ class MainWindow(Gtk.ApplicationWindow):
     # ------------------------------------------------------------------
 
     def _on_sequence_start(self) -> None:
-        if not self._controller.is_connected():
+        if not self._client.is_connected():
             self._show_error("Not connected", "Please connect to a camera first.")
             return
 
         seq_config = self._build_sequence_config()
         self._sequence_panel.set_running(True)
 
-        self._controller.start_sequence(
+        self._client.start_sequence(
             config=seq_config,
             on_frame_start=lambda idx, total: GLib.idle_add(
                 self._sequence_panel.update_frame_progress, idx + 1, total
@@ -273,18 +274,52 @@ class MainWindow(Gtk.ApplicationWindow):
             on_sequence_complete=lambda results: GLib.idle_add(
                 self._on_sequence_complete, results
             ),
-            on_fits_ready=lambda result, paths: GLib.idle_add(
-                self._on_fits_ready, result, paths
-            ),
+            # API mode: on_fits_ready receives (capture_id, exposure_s, iso)
+            on_fits_ready=lambda capture_id, exposure_s, iso: threading.Thread(
+                target=self._download_fits_and_show,
+                args=(capture_id, exposure_s, iso),
+                daemon=True,
+            ).start(),
         )
 
     def _on_sequence_stop(self) -> None:
-        self._controller.stop_sequence()
+        self._client.stop_sequence()
         self._sequence_panel.set_running(False)
         self._sequence_panel.set_status("Stopped")
 
-    def _on_fits_ready(self, result: CaptureResult, paths: dict) -> bool:
-        self._preview_panel.show_fits(paths["G"], result.exposure_s, result.iso)
+    def _download_fits_and_show(
+        self, capture_id: str, exposure_s: float, iso: int
+    ) -> None:
+        """Download G-channel FITS from server, write to tempfile, show in UI."""
+        try:
+            data = self._client.download_fits_channel(capture_id, "G")
+        except Exception as exc:
+            logger.warning("FITS download failed for %s: %s", capture_id, exc)
+            return
+
+        try:
+            fd, path_str = tempfile.mkstemp(suffix=".fits", prefix="picer_")
+            tmp_path = Path(path_str)
+            import os
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+        except Exception as exc:
+            logger.warning("Could not write FITS tempfile: %s", exc)
+            return
+
+        GLib.idle_add(self._on_fits_downloaded, tmp_path, exposure_s, iso)
+
+    def _on_fits_downloaded(
+        self, tmp_path: Path, exposure_s: float, iso: int
+    ) -> bool:
+        # Clean up previous tempfile
+        if self._current_fits_tmp and self._current_fits_tmp.exists():
+            try:
+                self._current_fits_tmp.unlink()
+            except Exception:
+                pass
+        self._current_fits_tmp = tmp_path
+        self._preview_panel.show_fits(tmp_path, exposure_s, iso)
         self._fits_hdr_btn.set_sensitive(True)
         return GLib.SOURCE_REMOVE
 
@@ -294,8 +329,9 @@ class MainWindow(Gtk.ApplicationWindow):
             return
         _FitsHeaderDialog(self, path).present()
 
-    def _on_frame_complete(self, result: CaptureResult) -> bool:
+    def _on_frame_complete(self, result) -> bool:
         self._sequence_panel.set_status(f"Saved: {result.file_path.name}")
+        # Show a "converting" placeholder while waiting for fits_ready
         self._preview_panel.show_file(result.file_path, result.exposure_s, result.iso)
         return GLib.SOURCE_REMOVE
 
@@ -309,7 +345,7 @@ class MainWindow(Gtk.ApplicationWindow):
         )
         return True  # continue sequence on transient errors
 
-    def _on_sequence_complete(self, results: list[CaptureResult]) -> bool:
+    def _on_sequence_complete(self, results: list) -> bool:
         self._sequence_panel.set_running(False)
         self._sequence_panel.set_status(f"Done — {len(results)} frame(s) captured")
         return GLib.SOURCE_REMOVE
