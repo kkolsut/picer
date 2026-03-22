@@ -140,11 +140,21 @@ class SequenceRunner:
                 if result.file_path.suffix.lower() == ".cr2" and self._on_fits_ready:
                     _result = result
                     _cb = self._on_fits_ready
+                    _meta = cfg.observation
+                    _ts = result.timestamp
+                    _exp = result.exposure_s
+                    _iso = result.iso
 
                     def _do_convert() -> None:
                         try:
                             from picer.utils.fits_converter import cr2_to_fits
-                            paths = cr2_to_fits(_result.file_path)
+                            paths = cr2_to_fits(
+                                _result.file_path,
+                                metadata=_meta,
+                                capture_time=_ts,
+                                exposure_s=_exp,
+                                iso=_iso,
+                            )
                             _cb(_result, paths)
                         except Exception as exc:
                             logger.warning("FITS conversion failed: %s", exc)

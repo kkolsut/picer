@@ -182,6 +182,12 @@ class GearPanel(Gtk.Frame):
         name = self._optic_combo.get_active_id()
         return next((o for o in self._optics if o.name == name), None)
 
+    def get_selected_camera(self) -> Optional[GearCamera]:
+        return self._selected_camera()
+
+    def get_selected_optic(self) -> Optional[GearOptic]:
+        return self._selected_optic()
+
     def _open_edit_dialog(self, mode: str) -> None:
         from picer.gui.dialogs.add_gear_dialog import AddGearDialog
         existing = self._selected_camera() if mode == "camera" else self._selected_optic()

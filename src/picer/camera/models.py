@@ -128,3 +128,20 @@ class SequenceConfig:
     filename_template: str = "{type}_{date}_{seq:04d}"
     frame_type: FrameType = FrameType.LIGHT
     camera_config: CameraConfig = field(default_factory=CameraConfig)
+    observation: Optional["ObservationMetadata"] = None
+
+
+@dataclass
+class ObservationMetadata:
+    """Astronomical context collected at sequence-start time."""
+    object_name:  Optional[str]   = None  # e.g. "M 42 — Orion Nebula"
+    ra_deg:       Optional[float] = None  # J2000 decimal degrees
+    dec_deg:      Optional[float] = None
+    observer_lat: Optional[float] = None
+    observer_lon: Optional[float] = None
+    telescope:    Optional[str]   = None  # optic name
+    detector:     Optional[str]   = None  # camera name
+    focal_mm:     Optional[float] = None
+    aperture_mm:  Optional[float] = None
+    pixel_um:     Optional[float] = None
+    frame_type:   Optional[str]   = None  # "object", "dark", "flat", "bias"
