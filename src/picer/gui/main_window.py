@@ -24,6 +24,7 @@ from picer.gui.panels.exposure_panel import ExposurePanel
 from picer.gui.panels.format_panel import FormatPanel
 from picer.gui.panels.gear_panel import GearPanel
 from picer.gui.panels.iso_panel import ISOPanel
+from picer.gui.panels.object_panel import ObjectPanel
 from picer.gui.panels.output_panel import OutputPanel
 from picer.gui.panels.preview_panel import PreviewPanel
 from picer.gui.panels.sequence_panel import SequencePanel
@@ -73,7 +74,15 @@ class MainWindow(Gtk.ApplicationWindow):
         capture_scroll.set_child(capture_box)
         notebook.append_page(capture_scroll, Gtk.Label(label="Capture"))
 
-        # Tab 2 — Gear
+        # Tab 2 — Object (inserted between Capture and Gear)
+        object_scroll = Gtk.ScrolledWindow()
+        object_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        object_scroll.set_min_content_width(280)
+        object_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        object_scroll.set_child(object_box)
+        notebook.insert_page(object_scroll, Gtk.Label(label="Object"), 1)
+
+        # Tab 3 — Gear
         gear_scroll = Gtk.ScrolledWindow()
         gear_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         gear_scroll.set_min_content_width(280)
@@ -82,6 +91,7 @@ class MainWindow(Gtk.ApplicationWindow):
         notebook.append_page(gear_scroll, Gtk.Label(label="Gear"))
 
         # Panels
+        self._object_panel = ObjectPanel()
         self._gear_panel = GearPanel()
         self._exposure_panel = ExposurePanel()
         self._iso_panel = ISOPanel()
@@ -92,6 +102,7 @@ class MainWindow(Gtk.ApplicationWindow):
         )
         self._output_panel = OutputPanel()
 
+        object_box.append(self._object_panel)
         gear_box.append(self._gear_panel)
         capture_box.append(self._exposure_panel)
         capture_box.append(self._iso_panel)
