@@ -161,6 +161,9 @@ class PreviewPanel(Gtk.Frame):
         self._psf_area.queue_draw()
         self._zoom_area.queue_draw()
 
+    def get_current_fits_path(self) -> Optional[Path]:
+        return self._current_fits_path
+
     def clear(self) -> None:
         self._placeholder_label.set_label("No image captured yet")
         self._stack.set_visible_child_name("placeholder")
