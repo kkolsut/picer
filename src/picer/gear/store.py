@@ -91,6 +91,45 @@ def add_custom_camera(cam: GearCamera) -> None:
     _save_raw(data)
 
 
+def update_custom_camera(old_name: str, cam: GearCamera) -> None:
+    data = _load_raw()
+    cameras = data.get("cameras", [])
+    for i, c in enumerate(cameras):
+        if c["name"] == old_name:
+            cameras[i] = {
+                "name": cam.name,
+                "sensor_w_mm": cam.sensor_w_mm,
+                "sensor_h_mm": cam.sensor_h_mm,
+                "pixels_x": cam.pixels_x,
+                "pixels_y": cam.pixels_y,
+                "pixel_um": cam.pixel_um,
+                "custom": True,
+            }
+            break
+    data["cameras"] = cameras
+    if data.get("selected_camera") == old_name:
+        data["selected_camera"] = cam.name
+    _save_raw(data)
+
+
+def update_custom_optic(old_name: str, optic: GearOptic) -> None:
+    data = _load_raw()
+    optics = data.get("optics", [])
+    for i, o in enumerate(optics):
+        if o["name"] == old_name:
+            optics[i] = {
+                "name": optic.name,
+                "focal_mm": optic.focal_mm,
+                "aperture_mm": optic.aperture_mm,
+                "custom": True,
+            }
+            break
+    data["optics"] = optics
+    if data.get("selected_optic") == old_name:
+        data["selected_optic"] = optic.name
+    _save_raw(data)
+
+
 def add_custom_optic(optic: GearOptic) -> None:
     data = _load_raw()
     optics = data.get("optics", [])

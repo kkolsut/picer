@@ -1,7 +1,7 @@
 """Dialog for adding a custom camera or optic."""
 from __future__ import annotations
 
-from typing import Callable, Literal
+from typing import Callable, Literal, Optional, Union
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -43,12 +43,18 @@ class AddGearDialog(Gtk.Window):
         parent: Gtk.Window,
         mode: Literal["camera", "optic"],
         on_added: Callable[[], None],
+        existing: Optional[Union[GearCamera, GearOptic]] = None,
     ) -> None:
         super().__init__()
         self._mode = mode
         self._on_added = on_added
+        self._existing = existing
+        editing = existing is not None
 
-        self.set_title("Add Custom Camera" if mode == "camera" else "Add Custom Optic")
+        if editing:
+            self.set_title("Edit Custom Camera" if mode == "camera" else "Edit Custom Optic")
+        else:
+            self.set_title("Add Custom Camera" if mode == "camera" else "Add Custom Optic")
         self.set_transient_for(parent)
         self.set_modal(True)
         self.set_resizable(False)
@@ -61,6 +67,8 @@ class AddGearDialog(Gtk.Window):
         self.set_child(box)
 
         self._name = _entry("e.g. My Canon 6D")
+        if existing:
+            self._name.set_text(existing.name)
         box.append(_labeled("Name:", self._name))
 
         if mode == "camera":
@@ -69,6 +77,12 @@ class AddGearDialog(Gtk.Window):
             self._pixels_x = _spin(100, 50000, 100, 0)
             self._pixels_y = _spin(100, 50000, 100, 0)
             self._pixel_um = _spin(0.1, 20, 0.01, 2)
+            if existing and isinstance(existing, GearCamera):
+                self._sensor_w.set_value(existing.sensor_w_mm)
+                self._sensor_h.set_value(existing.sensor_h_mm)
+                self._pixels_x.set_value(existing.pixels_x)
+                self._pixels_y.set_value(existing.pixels_y)
+                self._pixel_um.set_value(existing.pixel_um)
             box.append(_labeled("Sensor W (mm):", self._sensor_w))
             box.append(_labeled("Sensor H (mm):", self._sensor_h))
             box.append(_labeled("Pixels X:", self._pixels_x))
@@ -77,6 +91,9 @@ class AddGearDialog(Gtk.Window):
         else:
             self._focal = _spin(1, 10000, 1, 1)
             self._aperture = _spin(1, 1000, 1, 1)
+            if existing and isinstance(existing, GearOptic):
+                self._focal.set_value(existing.focal_mm)
+                self._aperture.set_value(existing.aperture_mm)
             box.append(_labeled("Focal length (mm):", self._focal))
             box.append(_labeled("Aperture (mm):", self._aperture))
 
@@ -88,7 +105,7 @@ class AddGearDialog(Gtk.Window):
         cancel.connect("clicked", lambda _: self.close())
         btn_row.append(cancel)
 
-        add = Gtk.Button(label="Add")
+        add = Gtk.Button(label="Save" if editing else "Add")
         add.add_css_class("suggested-action")
         add.connect("clicked", self._on_add)
         btn_row.append(add)
@@ -110,7 +127,10 @@ class AddGearDialog(Gtk.Window):
                 pixel_um=self._pixel_um.get_value(),
                 custom=True,
             )
-            store.add_custom_camera(cam)
+            if self._existing:
+                store.update_custom_camera(self._existing.name, cam)
+            else:
+                store.add_custom_camera(cam)
         else:
             optic = GearOptic(
                 name=name,
@@ -118,7 +138,10 @@ class AddGearDialog(Gtk.Window):
                 aperture_mm=self._aperture.get_value(),
                 custom=True,
             )
-            store.add_custom_optic(optic)
+            if self._existing:
+                store.update_custom_optic(self._existing.name, optic)
+            else:
+                store.add_custom_optic(optic)
 
         self._on_added()
         self.close()

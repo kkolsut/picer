@@ -45,9 +45,14 @@ class GearPanel(Gtk.Frame):
         cam_add = Gtk.Button(label="+")
         cam_add.set_tooltip_text("Add custom camera")
         cam_add.connect("clicked", lambda _: self._open_add_dialog("camera"))
+        self._cam_edit = Gtk.Button(label="✎")
+        self._cam_edit.set_tooltip_text("Edit custom camera")
+        self._cam_edit.set_sensitive(False)
+        self._cam_edit.connect("clicked", lambda _: self._open_edit_dialog("camera"))
         cam_row.append(cam_lbl)
         cam_row.append(self._cam_combo)
         cam_row.append(cam_add)
+        cam_row.append(self._cam_edit)
         outer.append(cam_row)
 
         self._cam_info = Gtk.Label(label="")
@@ -68,9 +73,14 @@ class GearPanel(Gtk.Frame):
         optic_add = Gtk.Button(label="+")
         optic_add.set_tooltip_text("Add custom optic")
         optic_add.connect("clicked", lambda _: self._open_add_dialog("optic"))
+        self._optic_edit = Gtk.Button(label="✎")
+        self._optic_edit.set_tooltip_text("Edit custom optic")
+        self._optic_edit.set_sensitive(False)
+        self._optic_edit.connect("clicked", lambda _: self._open_edit_dialog("optic"))
         optic_row.append(optic_lbl)
         optic_row.append(self._optic_combo)
         optic_row.append(optic_add)
+        optic_row.append(self._optic_edit)
         outer.append(optic_row)
 
         self._optic_info = Gtk.Label(label="")
@@ -141,6 +151,8 @@ class GearPanel(Gtk.Frame):
     def _update_labels(self) -> None:
         cam = self._selected_camera()
         optic = self._selected_optic()
+        self._cam_edit.set_sensitive(cam is not None and cam.custom)
+        self._optic_edit.set_sensitive(optic is not None and optic.custom)
 
         if cam:
             self._cam_info.set_text(
@@ -169,6 +181,15 @@ class GearPanel(Gtk.Frame):
     def _selected_optic(self) -> Optional[GearOptic]:
         name = self._optic_combo.get_active_id()
         return next((o for o in self._optics if o.name == name), None)
+
+    def _open_edit_dialog(self, mode: str) -> None:
+        from picer.gui.dialogs.add_gear_dialog import AddGearDialog
+        existing = self._selected_camera() if mode == "camera" else self._selected_optic()
+        if existing is None or not existing.custom:
+            return
+        root = self.get_root()
+        dlg = AddGearDialog(parent=root, mode=mode, on_added=self._load, existing=existing)
+        dlg.present()
 
     def _open_add_dialog(self, mode: str) -> None:
         from picer.gui.dialogs.add_gear_dialog import AddGearDialog
