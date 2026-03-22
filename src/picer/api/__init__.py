@@ -1,0 +1,1 @@
+"""Picer FastAPI server package."""
