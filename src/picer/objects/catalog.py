@@ -279,7 +279,8 @@ def _load_ngc_ic() -> None:
                 raw_name = row["Name"].strip()
                 is_ic = raw_name.startswith("IC")
                 catalog = "IC" if is_ic else "NGC"
-                num_str = raw_name[2:].lstrip("0") or "0"
+                prefix_len = 2 if is_ic else 3   # "IC" = 2, "NGC" = 3
+                num_str = raw_name[prefix_len:].lstrip("0") or "0"
                 designation = f"{catalog} {num_str}"
                 ra_deg = _parse_ra_hms(row.get("RA", "").strip())
                 dec_deg = _parse_dec_dms(row.get("Dec", "").strip())
