@@ -18,7 +18,7 @@ except (ValueError, ImportError):
     _HAS_ADW = False
 
 from picer.camera.mock_backend import MockBackend
-from picer.camera.models import BulbProgress, CameraConfig, CaptureResult, SequenceConfig
+from picer.camera.models import BulbProgress, CameraConfig, CaptureResult, ObservationMetadata, SequenceConfig
 from picer.core.controller import CameraController
 from picer.gui.panels.exposure_panel import ExposurePanel
 from picer.gui.panels.format_panel import FormatPanel
@@ -181,6 +181,8 @@ class MainWindow(Gtk.ApplicationWindow):
         self._format_panel.apply_to_config(config)
         return config
 
+    _FRAME_TYPE_LABEL = {"light": "object", "dark": "dark", "flat": "flat", "bias": "bias"}
+
     def _build_sequence_config(self) -> SequenceConfig:
         camera_config = self._build_camera_config()
         seq_config = SequenceConfig(
@@ -189,6 +191,24 @@ class MainWindow(Gtk.ApplicationWindow):
             camera_config=camera_config,
         )
         self._sequence_panel.apply_to_sequence_config(seq_config)
+
+        obj      = self._object_panel.get_current_object()
+        lat, lon = self._object_panel.get_observer_location()
+        cam      = self._gear_panel.get_selected_camera()
+        optic    = self._gear_panel.get_selected_optic()
+        seq_config.observation = ObservationMetadata(
+            object_name  = obj.designation if obj else None,
+            ra_deg       = obj.ra_deg   if obj   else None,
+            dec_deg      = obj.dec_deg  if obj   else None,
+            observer_lat = lat,
+            observer_lon = lon,
+            telescope    = optic.name        if optic else None,
+            detector     = cam.name          if cam   else None,
+            focal_mm     = optic.focal_mm    if optic else None,
+            aperture_mm  = optic.aperture_mm if optic else None,
+            pixel_um     = cam.pixel_um      if cam   else None,
+            frame_type   = self._FRAME_TYPE_LABEL.get(seq_config.frame_type.value, "unknown"),
+        )
         return seq_config
 
     # ------------------------------------------------------------------

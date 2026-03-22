@@ -575,6 +575,12 @@ class ObjectPanel(Gtk.Frame):
     # Helpers
     # ------------------------------------------------------------------
 
+    def get_current_object(self) -> Optional[DeepSkyObject]:
+        return self._current_obj
+
+    def get_observer_location(self) -> tuple[Optional[float], Optional[float]]:
+        return self._parse_location()
+
     def _clear_info(self) -> None:
         self._current_obj = None
         self._info_name.set_markup("")
