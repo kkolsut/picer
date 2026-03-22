@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from picer.api import state
-from picer.api.routes import camera, capture, gear, objects, sequence
+from picer.api.routes import camera, capture, files, gear, objects, sequence
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,7 @@ def create_app() -> FastAPI:
     app.include_router(sequence.router)
     app.include_router(gear.router)
     app.include_router(objects.router)
+    app.include_router(files.router)
 
     return app
 

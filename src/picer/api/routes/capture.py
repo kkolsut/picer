@@ -55,6 +55,25 @@ def single_capture(body: dict, user: Annotated[str, Depends(require_auth)]):
     }
 
 
+@router.get("/captures")
+def list_captures(user: Annotated[str, Depends(require_auth)]):
+    """List all captures in the current server session."""
+    records = state.captures.all()
+    return {
+        "captures": [
+            {
+                "id": r.id,
+                "file": r.result.file_path.name,
+                "exposure_s": r.result.exposure_s,
+                "iso": r.result.iso,
+                "timestamp": r.result.timestamp,
+                "has_fits": bool(r.fits_paths),
+            }
+            for r in records
+        ]
+    }
+
+
 @router.get("/captures/{capture_id}/raw")
 def download_raw(capture_id: str, user: Annotated[str, Depends(require_auth)]):
     """Download the original RAW file."""

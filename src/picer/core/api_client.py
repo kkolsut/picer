@@ -228,9 +228,51 @@ class APIClient:
     # ------------------------------------------------------------------
 
     def download_fits_channel(self, capture_id: str, channel: str) -> bytes:
-        r = self._http.get(f"/captures/{capture_id}/fits/{channel.upper()}")
+        r = self._http.get(
+            f"/captures/{capture_id}/fits/{channel.upper()}", timeout=120.0
+        )
         r.raise_for_status()
         return r.content
+
+    def list_captures(self) -> list[dict]:
+        """Return list of capture dicts from the server session."""
+        r = self._http.get("/captures")
+        r.raise_for_status()
+        return r.json().get("captures", [])
+
+    def list_server_files(self, dir: Optional[str] = None) -> dict:
+        """Scan a server directory for CR2+FITS files. Returns {dir, files}."""
+        params = {"dir": dir} if dir else {}
+        r = self._http.get("/files", params=params)
+        r.raise_for_status()
+        return r.json()
+
+    def download_file_path(self, server_path: str) -> tuple[bytes, str]:
+        """Download any CR2 or FITS file by its absolute path on the server."""
+        r = self._http.get("/files/download", params={"path": server_path}, timeout=120.0)
+        r.raise_for_status()
+        cd = r.headers.get("content-disposition", "")
+        filename = Path(server_path).name
+        if 'filename="' in cd:
+            filename = cd.split('filename="')[1].rstrip('"')
+        return r.content, filename
+
+    def delete_file_path(self, server_path: str) -> None:
+        """Delete a single CR2 or FITS file on the server by path."""
+        self._http.delete("/files/delete", params={"path": server_path})
+
+    def download_raw(self, capture_id: str) -> tuple[bytes, str]:
+        """Return (file_bytes, filename) for the original RAW file."""
+        r = self._http.get(f"/captures/{capture_id}/raw", timeout=120.0)
+        r.raise_for_status()
+        cd = r.headers.get("content-disposition", "")
+        filename = f"{capture_id}.bin"
+        if 'filename="' in cd:
+            filename = cd.split('filename="')[1].rstrip('"')
+        return r.content, filename
+
+    def delete_capture(self, capture_id: str) -> None:
+        self._http.delete(f"/captures/{capture_id}")
 
     def check_reachable(self) -> tuple[bool, str]:
         """Return (ok, error_message). Quick connectivity check."""

@@ -65,6 +65,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
         self._client = client
         self._current_fits_tmp: Optional[Path] = None  # tempfile for last downloaded FITS
+        self._pending_download_ids: list[str] = []  # capture IDs from current sequence
 
         # ── Header bar ────────────────────────────────────────────────
         header = Gtk.HeaderBar()
@@ -145,6 +146,46 @@ class MainWindow(Gtk.ApplicationWindow):
         self._fits_hdr_btn.set_margin_bottom(4)
         self._fits_hdr_btn.connect("clicked", self._on_show_fits_header)
         capture_box.append(self._fits_hdr_btn)
+
+        # ── Download panel ─────────────────────────────────────────────
+        dl_frame = Gtk.Frame(label="Download")
+        dl_frame.set_margin_start(8)
+        dl_frame.set_margin_end(8)
+        dl_frame.set_margin_top(4)
+        dl_frame.set_margin_bottom(4)
+        dl_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        dl_box.set_margin_start(12)
+        dl_box.set_margin_end(12)
+        dl_box.set_margin_top(8)
+        dl_box.set_margin_bottom(10)
+        dl_frame.set_child(dl_box)
+
+        dl_btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+
+        self._download_btn = Gtk.Button(label="Download RAW files")
+        self._download_btn.set_hexpand(True)
+        self._download_btn.set_sensitive(False)
+        self._download_btn.connect("clicked", self._on_download_clicked)
+        dl_btn_row.append(self._download_btn)
+
+        browse_server_btn = Gtk.Button(label="Browse…")
+        browse_server_btn.set_tooltip_text("Browse and select files from server")
+        browse_server_btn.connect("clicked", self._on_browse_server)
+        dl_btn_row.append(browse_server_btn)
+
+        dl_box.append(dl_btn_row)
+
+        self._delete_after_check = Gtk.CheckButton(
+            label="Delete from server after download"
+        )
+        dl_box.append(self._delete_after_check)
+
+        self._download_status = Gtk.Label(label="")
+        self._download_status.set_xalign(0)
+        self._download_status.add_css_class("dim-label")
+        dl_box.append(self._download_status)
+
+        capture_box.append(dl_frame)
 
         # Right: preview
         self._preview_panel = PreviewPanel()
@@ -256,6 +297,11 @@ class MainWindow(Gtk.ApplicationWindow):
             self._show_error("Not connected", "Please connect to a camera first.")
             return
 
+        self._pending_download_ids = []
+        self._download_btn.set_sensitive(False)
+        self._download_btn.set_label("Download RAW files")
+        self._download_status.set_text("")
+
         seq_config = self._build_sequence_config()
         self._sequence_panel.set_running(True)
 
@@ -275,17 +321,72 @@ class MainWindow(Gtk.ApplicationWindow):
                 self._on_sequence_complete, results
             ),
             # API mode: on_fits_ready receives (capture_id, exposure_s, iso)
-            on_fits_ready=lambda capture_id, exposure_s, iso: threading.Thread(
-                target=self._download_fits_and_show,
-                args=(capture_id, exposure_s, iso),
-                daemon=True,
-            ).start(),
+            on_fits_ready=self._on_fits_ready,
         )
 
     def _on_sequence_stop(self) -> None:
         self._client.stop_sequence()
         self._sequence_panel.set_running(False)
         self._sequence_panel.set_status("Stopped")
+
+    def _on_fits_ready(self, capture_id: str, exposure_s: float, iso: int) -> None:
+        """Called from the WS listener thread when FITS conversion is done."""
+        self._pending_download_ids.append(capture_id)
+        threading.Thread(
+            target=self._download_fits_and_show,
+            args=(capture_id, exposure_s, iso),
+            daemon=True,
+        ).start()
+
+    def _on_browse_server(self, _btn: Gtk.Button) -> None:
+        from picer.gui.dialogs.download_dialog import DownloadDialog
+        DownloadDialog(
+            parent=self,
+            client=self._client,
+            dest_dir=self._output_panel.get_output_dir(),
+        ).present()
+
+    def _on_download_clicked(self, _btn: Gtk.Button) -> None:
+        if not self._pending_download_ids:
+            return
+        self._download_btn.set_sensitive(False)
+        delete_after = self._delete_after_check.get_active()
+        ids = list(self._pending_download_ids)
+        dest_dir = self._output_panel.get_output_dir()
+        threading.Thread(
+            target=self._do_download,
+            args=(ids, dest_dir, delete_after),
+            daemon=True,
+        ).start()
+
+    def _do_download(
+        self, capture_ids: list[str], dest_dir: Path, delete_after: bool
+    ) -> None:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        ok = 0
+        for i, capture_id in enumerate(capture_ids):
+            GLib.idle_add(
+                self._download_status.set_text,
+                f"Downloading {i + 1}/{len(capture_ids)}…",
+            )
+            try:
+                data, filename = self._client.download_raw(capture_id)
+                out_path = dest_dir / filename
+                out_path.write_bytes(data)
+                ok += 1
+                if delete_after:
+                    try:
+                        self._client.delete_capture(capture_id)
+                    except Exception as exc:
+                        logger.warning("Delete failed for %s: %s", capture_id, exc)
+            except Exception as exc:
+                logger.warning("Download failed for %s: %s", capture_id, exc)
+        GLib.idle_add(self._on_download_done, ok, len(capture_ids))
+
+    def _on_download_done(self, ok: int, total: int) -> bool:
+        self._download_status.set_text(f"Downloaded {ok}/{total} file(s)")
+        self._download_btn.set_sensitive(True)
+        return GLib.SOURCE_REMOVE
 
     def _download_fits_and_show(
         self, capture_id: str, exposure_s: float, iso: int
@@ -348,6 +449,10 @@ class MainWindow(Gtk.ApplicationWindow):
     def _on_sequence_complete(self, results: list) -> bool:
         self._sequence_panel.set_running(False)
         self._sequence_panel.set_status(f"Done — {len(results)} frame(s) captured")
+        n = len(self._pending_download_ids)
+        if n:
+            self._download_btn.set_label(f"Download RAW files ({n})")
+            self._download_btn.set_sensitive(True)
         return GLib.SOURCE_REMOVE
 
     # ------------------------------------------------------------------
